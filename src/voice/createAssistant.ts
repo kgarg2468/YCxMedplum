@@ -13,6 +13,18 @@
  */
 
 import { VOICE_SYSTEM_PROMPT, VOICE_FIRST_MESSAGE } from './prompt.js';
+import { ALL_INGREDIENT_NAMES } from '../data/knowledge.js';
+
+/**
+ * Deepgram nova-3 keyterm prompting (max 100 terms). Safety phrases first so the
+ * per-turn red-flag check never loses to a mistranscription, then every drug name
+ * the knowledge tables can match — the exact words the pipeline joins on.
+ * Docs: docs.vapi.ai/customization/custom-keywords, developers.deepgram.com/docs/keyterm
+ */
+const KEYTERMS = [
+  'chest pain', 'passed out', 'hit my head', 'vomiting blood', 'black stool',
+  ...ALL_INGREDIENT_NAMES,
+].slice(0, 100);
 
 const ASSISTANT_NAME = 'Deprescribe medication review';
 const VAPI = 'https://api.vapi.ai';
@@ -43,7 +55,7 @@ const config = {
     model: 'claude-haiku-4-5-20251001',
     messages: [{ role: 'system', content: VOICE_SYSTEM_PROMPT }],
   },
-  transcriber: { provider: 'deepgram', model: 'nova-3', language: 'en' },
+  transcriber: { provider: 'deepgram', model: 'nova-3', language: 'en', keyterm: KEYTERMS },
   voice: { provider: 'deepgram', voiceId: 'asteria' },
   // transcript = per-turn red-flag checks; end-of-call-report = the full pipeline.
   serverMessages: ['transcript', 'end-of-call-report'],
