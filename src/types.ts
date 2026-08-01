@@ -2,6 +2,8 @@
  * Shared types. The whole pipeline is: SpokenMed[] -> ResolvedMed[] -> Findings.
  */
 
+import type { ChartMedicationConfirmation, PatientMedicationConcern } from './context/types.js';
+
 /** Raw LLM extraction output. Nothing here is trusted or resolved yet. */
 export interface SpokenMed {
   spoken_as: string;
@@ -23,6 +25,13 @@ export interface Extraction {
   symptoms: ExtractedSymptom[];
   values: string[];
   red_flags: string[];
+  /**
+   * Exactly one entry per chart alias presented to the assistant. Absence of an
+   * answer is `unclear`, never assumed current use. Empty for canned runs.
+   */
+  chart_medication_confirmations: ChartMedicationConfirmation[];
+  /** What the patient wants raised, in their words. Never a causal claim. */
+  medication_concerns: PatientMedicationConcern[];
 }
 
 /** After RxNav resolution. `ingredient` is the join key into every knowledge table. */
@@ -32,6 +41,13 @@ export interface ResolvedMed extends SpokenMed {
   ingredient: string | null;
   /** True when RxNav could not resolve it. These go to the clinician, never guessed. */
   unresolved: boolean;
+  /**
+   * Where this medication came from. `chart-confirmed` means the chart listed it
+   * and the patient confirmed current use; `patient-reported` means the patient
+   * said it out loud. The distinction drives FHIR provenance downstream, so it
+   * must never be inferred after the fact.
+   */
+  provenance: 'chart-confirmed' | 'patient-reported';
 }
 
 export type FindingKind =

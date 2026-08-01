@@ -13,6 +13,16 @@ import type { SpokenMed, ResolvedMed } from './types.js';
 
 const BASE = 'https://rxnav.nlm.nih.gov/REST';
 
+/**
+ * Everything resolved here came out of the patient's mouth, so it is
+ * `patient-reported` by construction — a chart medication is only ever
+ * `chart-confirmed` when the patient explicitly confirmed the charted entry, and
+ * that path never goes through RxNav. Every spread below keeps the spoken fields
+ * (`spoken_as`, `name_guess`, indication, strength, frequency, otc, confidence)
+ * intact so the conversion stays lossless downstream.
+ */
+const SPEECH_PROVENANCE = 'patient-reported' as const;
+
 // RxNav is rate-friendly but we cache anyway — the demo re-runs a lot.
 const cache = new Map<string, { rxcui: string; ingredient: string } | null>();
 
@@ -144,7 +154,7 @@ export async function resolveOne(med: SpokenMed): Promise<ResolvedMed> {
     const key = term.toLowerCase().trim();
     if (cache.has(key)) {
       const hit = cache.get(key)!;
-      if (hit) return { ...med, ...hit, unresolved: false };
+      if (hit) return { ...med, ...hit, unresolved: false, provenance: SPEECH_PROVENANCE };
       continue;
     }
 
@@ -152,7 +162,7 @@ export async function resolveOne(med: SpokenMed): Promise<ResolvedMed> {
     const ingredient = rxcui ? await toIngredient(rxcui) : null;
     if (rxcui && ingredient) {
       cache.set(key, { rxcui, ingredient });
-      return { ...med, rxcui, ingredient, unresolved: false };
+      return { ...med, rxcui, ingredient, unresolved: false, provenance: SPEECH_PROVENANCE };
     }
     cache.set(key, null);
   }
@@ -164,16 +174,16 @@ export async function resolveOne(med: SpokenMed): Promise<ResolvedMed> {
     const ingredient = rxcui ? await toIngredient(rxcui) : null;
     if (rxcui && ingredient && similarity(med.name_guess, ingredient) >= 0.5) {
       cache.set(med.name_guess.toLowerCase().trim(), { rxcui, ingredient });
-      return { ...med, rxcui, ingredient, unresolved: false };
+      return { ...med, rxcui, ingredient, unresolved: false, provenance: SPEECH_PROVENANCE };
     }
   }
 
   // Network down / RxNav rate-limited: hardcoded map, known drug tokens only.
   const offline = offlineFallback(med.name_guess, med.spoken_as);
-  if (offline) return { ...med, ...offline, unresolved: false };
+  if (offline) return { ...med, ...offline, unresolved: false, provenance: SPEECH_PROVENANCE };
 
   // Unresolved. This is a feature: it becomes a clinician review item.
-  return { ...med, rxcui: null, ingredient: null, unresolved: true };
+  return { ...med, rxcui: null, ingredient: null, unresolved: true, provenance: SPEECH_PROVENANCE };
 }
 
 export async function resolveAll(meds: SpokenMed[]): Promise<ResolvedMed[]> {

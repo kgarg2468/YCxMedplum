@@ -14,6 +14,23 @@
 
 import { VOICE_SYSTEM_PROMPT, VOICE_FIRST_MESSAGE } from './prompt.js';
 import { ALL_INGREDIENT_NAMES } from '../data/knowledge.js';
+import { EMPTY_PREFILL } from './buildPrefill.js';
+
+/**
+ * Dynamic variables the system prompt expects. Vapi cannot store values for
+ * these on the assistant — they are supplied per call in
+ * `assistantOverrides.variableValues`, which is exactly what we want: the chart
+ * context belongs to one patient and one call, never to the shared assistant.
+ * https://docs.vapi.ai/assistants/dynamic-variables
+ */
+const REQUIRED_VARIABLES = Object.keys(EMPTY_PREFILL) as (keyof typeof EMPTY_PREFILL)[];
+
+for (const name of REQUIRED_VARIABLES) {
+  if (!VOICE_SYSTEM_PROMPT.includes(`{{${name}}}`)) {
+    console.error(`Prompt is missing the {{${name}}} placeholder — chart context would never reach the call.`);
+    process.exit(1);
+  }
+}
 
 /**
  * Deepgram nova-3 keyterm prompting (max 100 terms). Safety phrases first so the
@@ -90,6 +107,10 @@ async function main() {
 
   console.log(`${match ? 'Updated' : 'Created'} assistant: ${assistant.id}`);
   console.log(`Dashboard: https://dashboard.vapi.ai/assistants/${assistant.id}`);
+  console.log(`\nThis assistant reads chart context from ${REQUIRED_VARIABLES.map((v) => `{{${v}}}`).join(' and ')}.`);
+  console.log('Those are per-call values: the server sends them in assistantOverrides.variableValues');
+  console.log('when it places the call. A dashboard test call with no overrides gets the empty chart');
+  console.log(`(${EMPTY_PREFILL.prefill_json}) and falls back to the full spoken inventory.`);
   if (!webhookUrl) {
     console.log('\n⚠ No webhook URL set. Once the server + tunnel are running, re-run:');
     console.log('  npx tsx --env-file-if-exists=.env src/voice/createAssistant.ts https://<tunnel>/vapi');

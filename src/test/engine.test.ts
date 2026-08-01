@@ -6,7 +6,7 @@ import type { ResolvedMed, ExtractedSymptom } from '../types.js';
 const mk = (ing: string, ind: string | null, strength = ''): ResolvedMed => ({
   spoken_as: ing, name_guess: ing, strength, frequency: null,
   stated_indication: ind, otc: false, confidence: 'high',
-  rxcui: '00000', ingredient: ing, unresolved: false,
+  rxcui: '00000', ingredient: ing, unresolved: false, provenance: 'patient-reported',
 });
 
 const meds: ResolvedMed[] = [

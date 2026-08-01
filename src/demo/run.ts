@@ -38,7 +38,9 @@ function hr(label: string) {
 
 async function main() {
   hr('1. EXTRACT');
-  const extraction = await extractWithRetry(DEMO_TRANSCRIPT);
+  // Canned run: no chart behind it, so no aliases were presented on the "call"
+  // and chart_medication_confirmations comes back empty.
+  const extraction = await extractWithRetry(DEMO_TRANSCRIPT, { chartAliases: [] });
   console.log(`${extraction.medications.length} medications, ${extraction.symptoms.length} symptoms`);
   for (const m of extraction.medications) {
     console.log(`  · ${m.name_guess ?? '(unidentified)'}  ← "${m.spoken_as}"  [${m.confidence}]` +
