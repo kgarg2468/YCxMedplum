@@ -226,7 +226,7 @@ function cascadeFlow(f: Finding): string {
 function findingCard(f: Finding, chart?: SnapshotChartMedication[]): string {
   const sev = SEVERITY[f.severity];
   // Evidence, stated as evidence. A reported symptom supports the finding; it
-  // does not confirm causation, so the wording never says "confirmed cascade".
+  // does not confirm causation, so the wording never claims a proven cascade.
   const evidence = f.kind === 'cascade'
     ? (f.symptomConfirmed
         ? `<div class="confirm yes">&#10003; Patient reported the linking symptom</div>`
