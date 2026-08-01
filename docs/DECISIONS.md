@@ -281,6 +281,17 @@ Margaret sits at 8.
 
 ## Questions you might get, with honest answers
 
+**"The challenger's objection is real clinical reasoning — where does that come
+from? Isn't that the LLM doing clinical judgment?"** — Yes, and deliberately: that
+knowledge is in the model's weights from the medical literature, not in our tables.
+The rule isn't "no clinical knowledge from the model" — it's asymmetric risk design.
+A hallucinated *finding* could drive a real action, so findings are deterministic
+and the model structurally cannot create one. A hallucinated *objection* costs a
+clinician thirty seconds and gets discarded — the challenger can't write findings
+or touch the chart; its output lands in a draft, labeled as generated, as input to
+the clinician. Where hallucination would be harmful it's impossible; where it's
+possible it's harmless.
+
 **"How accurate is extraction?"** — On our live telephony test it captured 8/8
 mentioned medications, including "Jonipezil" and "Burosemide" garbled by phone
 audio, and correctly refused to guess a drug the patient only called "the sleeping
