@@ -38,13 +38,18 @@ it as "the patient's own priorities" — never as a model prediction.
 ## The 2:00 outline
 
 **0:00–0:20 — The problem.**
-> Forty-two percent of adults over sixty-five take five or more daily
-> medications, usually from multiple prescribers across different practices —
-> and nearly one in five is on a medication considered inappropriate for their
-> age. The worst version of this is the prescribing cascade: a drug prescribed
-> just to treat the side effect of another drug. Finding one takes a thirty-
-> minute conversation about why each medication was started — a conversation
-> nobody is paid to have, so it almost never happens.
+> Medication harm sends about one and a half million Americans to the emergency
+> room every year — over six hundred thousand of them are adults sixty-five and
+> older. Rarely because any single prescription was wrong: two in five older
+> adults take five or more medications, usually from different prescribers, and
+> no one sees the whole picture. The worst case is the prescribing cascade — a
+> drug prescribed just to treat the side effect of another drug — and finding
+> one takes a conversation nobody is paid to have.
+
+*(Stat gate: CDC ADE figures — verify the exact number against the current CDC
+page and pin it in EVIDENCE.bib before stage. Never claim we prevent all of it;
+if asked: "we address the preventable subset that comes from nobody seeing the
+whole regimen.")*
 
 **0:20–0:35 — The solution, in plain language.**
 > Ours happens automatically. Before a visit, the patient gets a phone call — no
