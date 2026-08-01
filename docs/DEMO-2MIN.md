@@ -46,10 +46,18 @@ it as "the patient's own priorities" — never as a model prediction.
 > drug prescribed just to treat the side effect of another drug — and finding
 > one takes a conversation nobody is paid to have.
 
-*(Stat gate: CDC ADE figures — verify the exact number against the current CDC
-page and pin it in EVIDENCE.bib before stage. Never claim we prevent all of it;
-if asked: "we address the preventable subset that comes from nobody seeing the
-whole regimen.")*
+*(Stat gate: **CLOSED**. Verified 2026-08-01 against the live CDC FastStats page
+and pinned in `docs/EVIDENCE.bib` as `cdc_ade_faststats`. Both figures are exact:
+>1.5M ED visits/yr, ~500k hospitalized, 65+ accounting for >600k, "more than
+twice as often as younger people.")*
+
+*(⚠️ Q&A landmine on this stat: in adults 65+, anticoagulants, diabetes agents and
+opioid analgesics cause ~59.9% of those ED visits (Shehab, JAMA 2016) — and those
+are **not** the drugs our engine targets. If asked "your tool doesn't touch the
+drugs actually sending people to the ER": "Correct, and we don't claim that number
+as our addressable market. It's the scale of medication harm, not our target. What
+we address is the subset nobody is staffed to catch — drugs that are only there
+because of another drug." Never imply we prevent the 1.5M.)*
 
 **0:20–0:35 — The solution, in plain language.**
 > Ours happens automatically. Before a visit, the patient gets a phone call — no
