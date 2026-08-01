@@ -1,10 +1,10 @@
 <div align="center">
 
-# YCxMedplum
+# Deprescribe
 
 ### One medication story. One coordinated review.
 
-YCxMedplum is a TypeScript/Node.js agentic healthcare workflow that combines a synthetic patient's Medplum chart with one voice interview, reconciles what the chart says with what the patient reports, and prepares evidence-linked FHIR review artifacts for the authorized care team.
+Deprescribe is a TypeScript/Node.js agentic healthcare workflow that combines a synthetic patient's Medplum chart with one voice interview, reconciles what the chart says with what the patient reports, and prepares evidence-linked FHIR review artifacts for the authorized care team.
 
 Built for the **YC × Medplum Agentic Healthcare Hackathon**.
 
@@ -23,7 +23,7 @@ Built for the **YC × Medplum Agentic Healthcare Hackathon**.
 
 An older adult may receive amlodipine for blood pressure, then furosemide after ankle swelling, then allopurinol after gout. Each prescription can look reasonable in isolation. The medication story becomes visible only when the chart, the patient's chronology, and every prescriber are reviewed together.
 
-YCxMedplum gives the patient one conversation and gives clinicians one independently checkable review. It does not diagnose, establish causality, or order medication changes.
+Deprescribe gives the patient one conversation and gives clinicians one independently checkable review. It does not diagnose, establish causality, or order medication changes.
 
 ## Headline result
 
@@ -158,7 +158,7 @@ npm run sentinel:try -- "I went down in the bathroom and cracked my head on the 
 
 ## Clinical evidence and limits
 
-These publications establish clinical context; they are not YCxMedplum outcomes:
+These publications establish clinical context; they are not Deprescribe outcomes:
 
 - A population cohort found that older adults newly prescribed a calcium-channel blocker were more likely to receive a loop diuretic within 90 days (HR 2.51, 95% CI 2.13–2.96), the measured cascade represented by the fixture. [Savage et al., JAMA Internal Medicine (2020)](https://doi.org/10.1001/jamainternmed.2019.7087)
 - In a 130-person STOPPFrail randomized trial, the intervention group reduced medication count and monthly medication cost; the trial did not detect significant differences in falls, hospitalization, quality of life, or mortality. [Curtin et al., Journal of the American Geriatrics Society (2020)](https://doi.org/10.1111/jgs.16278)
