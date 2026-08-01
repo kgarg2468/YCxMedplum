@@ -1,19 +1,29 @@
 /**
- * The thin review panel (README hour-by-hour, 15:45 slot) — projector edition.
+ * The clinician review panel, projector edition, rebuilt for the 2-minute demo
+ * (docs/DEMO-2MIN.md § "Key UI features").
  *
  * Server-rendered single HTML page, zero external assets — it must work on venue
  * wifi that barely works. Served by src/server.ts at /review; the demo runner also
  * snapshots to out/last-review.json so the panel shows the latest run, live or canned.
  *
  * Design rules in force here:
- *  - type is sized to read from the back of a room (DEMO.md rehearsal checklist);
- *  - severity never rides on color alone (icon + label, left accent as reinforcement);
- *  - every finding renders its citation (FDA Non-Device CDS: the clinician can
- *    independently review the basis);
- *  - the chained cascade is the hero — it gets the diagram, everything else gets cards.
+ *  - THE FOLD CARRIES THE WHOLE STORY. In a 2-minute demo nobody scrolls, so the
+ *    chain diagram, the four numbers, the patient's stated priority and their
+ *    concerns all live above it. Everything below the fold is corroboration.
+ *  - No TEXT under 15px. Hierarchy comes from weight, colour and space, not from
+ *    shrinking type, because the back row of the room cannot read 12px. The only
+ *    smaller thing on the page is the severity glyph, which is decorative and
+ *    always paired with its word.
+ *  - One accent. Red means "this is the cascade" and nothing else; severity is
+ *    the only other place colour carries meaning, and it always ships with an
+ *    icon and a word so it never rides on colour alone.
+ *  - Every finding renders its citation (FDA Non-Device CDS: the clinician can
+ *    independently review the basis).
+ *  - The chained cascade is the hero. It gets the diagram; everything else gets rows.
  */
 
-import type { ReviewResult, Finding } from '../types.js';
+import type { ReviewResult, Finding, ResolvedMed } from '../types.js';
+import { DEMO_PRESCRIBERS } from '../fhir/seed.js';
 
 export interface ReviewSnapshot {
   at: string;                       // ISO timestamp of the run
@@ -57,18 +67,22 @@ const spell = (n: number) => WORDS[n] ?? String(n);
 /** "One medication" / "Three medications". */
 const plural = (n: number, word: string) => `${spell(n)} ${word}${n === 1 ? '' : 's'}`;
 
-/** trigger —(linking symptom)→ treater, for cascade cards. */
-function cascadeFlow(f: Finding): string {
-  const [trigger, treater] = f.implicated;
-  return `
-  <div class="flow">
-    <span class="node">${esc(trigger)}</span>
-    <span class="link">
-      <span class="link-symptom${f.symptomConfirmed ? ' hit' : ''}">${esc(f.linkingSymptom ?? '')}</span>
-      <span class="link-arrow">&#10230;</span>
-    </span>
-    <span class="node">${esc(treater)}</span>
-  </div>`;
+/**
+ * Synthetic practice attribution, shared with the FHIR writers so the panel and
+ * the Medplum resources never disagree. Labelled as synthetic wherever it is
+ * shown: it is demo scaffolding for the cross-practice story, not real data.
+ */
+const practiceOf = (ing: string | null | undefined): string | null =>
+  (ing && DEMO_PRESCRIBERS[ing]) || null;
+
+/** Distinct practices across the resolved regimen: the fragmentation number. */
+function practices(meds: ResolvedMed[]): string[] {
+  const seen = new Set<string>();
+  for (const m of meds) {
+    const p = practiceOf(m.ingredient);
+    if (p) seen.add(p);
+  }
+  return [...seen];
 }
 
 function findingCard(f: Finding): string {
@@ -78,30 +92,41 @@ function findingCard(f: Finding): string {
         ? `<div class="confirm yes">&#10003; Patient reported the linking symptom</div>`
         : `<div class="confirm no">&#9675; Structural only, linking symptom not reported</div>`)
     : '';
+
+  // Cascades read as trigger → treater with the symptom on the arrow; everything
+  // else is a flat list of the drugs involved.
   const body = f.kind === 'cascade'
-    ? cascadeFlow(f)
-    : `<div class="chain-line">${f.implicated.map(esc).join(' <span class="dim">&middot;</span> ')}</div>`;
+    ? `<div class="flow">
+         <span class="node">${esc(f.implicated[0] ?? '')}</span>
+         <span class="link">
+           <span class="link-symptom${f.symptomConfirmed ? ' hit' : ''}">${esc(f.linkingSymptom ?? '')}</span>
+           <span class="link-arrow" aria-hidden="true">&#10230;</span>
+         </span>
+         <span class="node">${esc(f.implicated[1] ?? '')}</span>
+       </div>`
+    : `<div class="flow">${f.implicated.map((i) => `<span class="node">${esc(i)}</span>`).join('')}</div>`;
 
   return `
-  <div class="card finding" style="--accent: var(${sev.var})">
+  <article class="finding" style="--accent: var(${sev.var})">
     <div class="finding-head">
-      <span class="sev-chip"><span class="sev-icon">${sev.icon}</span>${sev.label}</span>
+      <span class="sev-chip"><span class="sev-icon" aria-hidden="true">${sev.icon}</span>${sev.label}</span>
       <span class="kind">${KIND_LABEL[f.kind]}</span>
     </div>
-    <div class="finding-label">${esc(f.label)}</div>
+    <h3 class="finding-label">${esc(f.label)}</h3>
     ${body}
     ${confirmed}
     ${f.explanation ? `<p class="explain">${esc(f.explanation)}</p>` : ''}
-    <div class="citation">${esc(f.citation)}</div>
-  </div>`;
+    <p class="citation">${esc(f.citation)}</p>
+  </article>`;
 }
 
 export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   const body = snap ? renderBody(snap) : `
-    <div class="card empty">
-      <p>No review yet. Run <code>npm run demo</code>, or complete a voice call.</p>
-      <p class="muted">This page updates automatically when a review lands.</p>
-    </div>`;
+    <section class="empty">
+      <h1 class="display">No review yet.</h1>
+      <p class="lede">Run <code>npm run demo</code>, or complete a voice call. This page
+      repaints itself the moment a review lands.</p>
+    </section>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -122,172 +147,211 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   }, 3000);
 </script>
 <style>
+  /* ── Tokens ──────────────────────────────────────────────────────────
+     Two surfaces, three inks, four reserved status colours. That is the
+     whole palette; anything else on screen is one of these at an opacity. */
   :root {
     color-scheme: light;
-    --page: #f9f9f7; --surface: #fcfcfb;
-    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
-    --hairline: #e1e0d9; --border: rgba(11,11,11,0.10);
-    --critical: #d03b3b; --serious: #ec835a; --warning: #fab219; --good: #0ca30c;
-    --shadow: 0 1px 2px rgba(11,11,11,0.04), 0 4px 14px rgba(11,11,11,0.05);
+    --page: #fbfbfa;
+    --surface: #ffffff;
+    --sunken: #f4f4f1;
+    --ink: #0a0a0a;
+    --ink-2: #56554f;
+    --muted: #86847c;
+    --hairline: #e6e5df;
+    --border: rgba(10,10,10,0.09);
+    /* Reserved status colours. Contrast-checked against --surface for 15px text. */
+    --critical: #c1322c;
+    --serious: #a2560f;
+    --warning: #8a6d0b;
+    --good: #1a7f37;
+    --shadow: 0 1px 2px rgba(10,10,10,0.04), 0 6px 20px rgba(10,10,10,0.05);
   }
+  /* Dark is a designed mode, not an inverted one: its own steps, re-checked
+     against the dark surface. Venues project either one. */
   @media (prefers-color-scheme: dark) {
     :root {
       color-scheme: dark;
-      --page: #0d0d0d; --surface: #1a1a19;
-      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
-      --hairline: #2c2c2a; --border: rgba(255,255,255,0.10);
+      --page: #0b0b0a;
+      --surface: #161615;
+      --sunken: #1e1e1c;
+      --ink: #f6f6f3;
+      --ink-2: #adaca3;
+      --muted: #82817a;
+      --hairline: #292927;
+      --border: rgba(255,255,255,0.11);
+      --critical: #ff6f66;
+      --serious: #eda05c;
+      --warning: #e2c052;
+      --good: #52cc7e;
       --shadow: none;
     }
   }
+
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--page); color: var(--ink);
-    font: 17px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
-    -webkit-font-smoothing: antialiased;
+    font: 18px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
   }
-  main { max-width: 1140px; margin: 0 auto; padding: 28px 28px 80px; }
+  main { max-width: 1240px; margin: 0 auto; padding: 22px 40px 96px; }
+  @media (max-width: 720px) { main { padding: 18px 20px 64px; } }
 
-  /* ── Top bar: identity only. The cascade owns the first screen. ─── */
-  .topbar {
-    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 18px;
-    padding-bottom: 16px; border-bottom: 1px solid var(--hairline);
-  }
-  .wordmark { font-size: 15px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
-  .wordmark .minus { color: var(--critical); font-weight: 800; margin-left: 2px; }
-  .sub { color: var(--ink-2); font-size: 15px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
-  .sub .who { font-weight: 600; color: var(--ink); }
-  .sub a { color: inherit; }
-  .pill {
-    display: inline-block; font-size: 12.5px; font-weight: 600; letter-spacing: .02em;
-    border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; color: var(--ink-2);
-  }
-  .pill.live { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+  /* Type scale. Five sizes, no text under 15px (the projector rule). */
+  .display { font-size: clamp(36px, 4.1vw, 60px); font-weight: 620; line-height: 1.04;
+    letter-spacing: -0.028em; margin: 0; }
+  .lede { font-size: 19px; color: var(--ink-2); line-height: 1.5; margin: 14px 0 0; max-width: 70ch; }
+  .label { font-size: 15px; font-weight: 640; letter-spacing: .085em; text-transform: uppercase;
+    color: var(--muted); margin: 0; }
   .muted { color: var(--muted); }
-  .dim { color: var(--muted); }
 
-  /* ── Stat tiles ─────────────────────────────────────── */
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin-top: 28px; }
-  .tile {
+  /* ── Top bar: identity only, deliberately quiet. ─────────────────── */
+  .topbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+    padding-bottom: 18px; border-bottom: 1px solid var(--hairline); }
+  .wordmark { font-size: 16px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+  .wordmark .minus { color: var(--critical); margin-left: 1px; }
+  .topbar .who { font-size: 16px; font-weight: 600; }
+  .topbar .rest { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-left: auto; }
+  .pill { font-size: 15px; font-weight: 560; border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 12px; color: var(--ink-2); white-space: nowrap; }
+  .pill.live { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+  .topbar a { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--border);
+    font-size: 15px; white-space: nowrap; }
+  .topbar a:hover { color: var(--ink); }
+
+  /* ── Hero: the chain. Owns the first screen. ─────────────────────── */
+  .hero { padding: 30px 0 4px; }
+  .hero .display .accent { color: var(--critical); }
+  .hero .lede { margin-top: 16px; }
+
+  .diagram { display: flex; flex-wrap: wrap; align-items: stretch; margin-top: 28px; }
+  .drug {
+    display: flex; flex-direction: column; justify-content: flex-start;
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: 14px; padding: 18px 20px 16px; box-shadow: var(--shadow);
-  }
-  .tile .label { font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
-  .tile .value { font-size: 44px; font-weight: 650; line-height: 1.1; margin-top: 4px; letter-spacing: -0.02em; }
-  .tile .note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
-  .meter { height: 7px; border-radius: 4px; margin-top: 12px; position: relative;
-    background: color-mix(in srgb, var(--meter-color) 16%, var(--surface)); }
-  .meter .fill { position: absolute; inset: 0 auto 0 0; width: var(--meter-fill); background: var(--meter-color); border-radius: 4px; }
-  .meter .tick { position: absolute; top: -3px; bottom: -3px; left: var(--meter-tick); width: 2px; background: var(--ink-2); border-radius: 1px; opacity: .55; }
-
-  /* ── Hero: the chained cascade. First thing on the projector. ──── */
-  .hero {
-    margin-top: 24px; border-radius: 16px; padding: 34px 36px 32px;
-    background: color-mix(in srgb, var(--critical) 6%, var(--surface));
-    border: 1px solid color-mix(in srgb, var(--critical) 30%, var(--border));
+    border-radius: 16px; padding: 18px 22px; min-width: 208px; flex: 0 1 auto;
     box-shadow: var(--shadow);
   }
-  /* Clean result reads as a finding, not as an error state. */
-  .hero.hero-clear {
-    background: color-mix(in srgb, var(--good) 6%, var(--surface));
-    border-color: color-mix(in srgb, var(--good) 30%, var(--border));
-  }
-  /* Second and later chains render as h2 for heading semantics, so this must
-     override the global h2 rule (uppercase, 14px, flex) as well as h1. */
-  .hero-claim {
-    font-size: clamp(30px, 3.4vw, 46px); font-weight: 680; line-height: 1.08;
-    letter-spacing: -0.022em; margin: 0; color: var(--ink);
-    text-transform: none; display: block;
-  }
-  .diagram { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px 0; margin-top: 26px; }
-  .drug {
-    display: flex; flex-direction: column; justify-content: center;
-    background: var(--surface); border: 1px solid color-mix(in srgb, var(--critical) 40%, var(--border));
-    border-radius: 12px; padding: 16px 22px 14px; min-width: 172px;
-  }
-  .drug .name { font-size: clamp(22px, 2vw, 30px); font-weight: 650; letter-spacing: -0.015em; }
-  .drug .why { font-size: 13.5px; color: var(--muted); margin-top: 4px; max-width: 210px; line-height: 1.4; }
-  .arrow-col { display: flex; align-items: center; padding: 0 16px;
-    color: color-mix(in srgb, var(--critical) 75%, var(--ink)); font-size: 30px; }
-  .hero .caption { margin: 22px 0 0; color: var(--ink-2); font-size: 16.5px; max-width: 68ch; line-height: 1.5; }
+  .drug .practice { font-size: 15px; font-weight: 640; letter-spacing: .04em; text-transform: uppercase;
+    color: var(--muted); }
+  .drug .name { font-size: clamp(24px, 2.1vw, 33px); font-weight: 640; letter-spacing: -0.02em;
+    line-height: 1.15; margin-top: 6px; }
+  .drug .why { font-size: 16px; color: var(--ink-2); margin-top: 8px; max-width: 24ch; line-height: 1.4; }
 
-  /* Below ~1000px a 3-drug chain wraps and can strand an arrow at the end of a
+  /* The arrow carries the linking symptom: it is the causal claim, so it is
+     labelled rather than decorative. */
+  .step { display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 0 18px; min-width: 116px; }
+  .step .sym { font-size: 15px; font-weight: 620; color: var(--critical); text-align: center;
+    line-height: 1.25; }
+  .step .glyph { font-size: 28px; color: var(--critical); line-height: 1.2; }
+  .step .caused { font-size: 15px; color: var(--muted); text-align: center; line-height: 1.25; }
+
+  /* Below ~1040px a 3-drug chain wraps and can strand an arrow at the end of a
      line. Stack instead, arrows pointing down. Guards an unmaximized window on
      the projector, which is how this actually breaks in a venue. */
-  @media (max-width: 1000px) {
-    .diagram { flex-direction: column; align-items: stretch; gap: 0; }
+  @media (max-width: 1040px) {
+    .diagram { flex-direction: column; align-items: stretch; }
     .drug { min-width: 0; }
-    .arrow-col { padding: 6px 0 6px 26px; font-size: 24px; transform: rotate(90deg);
-      transform-origin: 18px center; height: 34px; }
+    .step { flex-direction: row; gap: 10px; padding: 12px 0 12px 28px; min-width: 0;
+      justify-content: flex-start; }
+    .step .glyph { transform: rotate(90deg); }
   }
 
-  .redflag {
-    margin-top: 20px; border-radius: 14px; padding: 18px 22px;
-    background: color-mix(in srgb, var(--critical) 12%, var(--surface));
-    border: 1px solid color-mix(in srgb, var(--critical) 50%, var(--border));
-    font-size: 16px;
-  }
+  .fragment { margin: 22px 0 0; font-size: 19px; color: var(--ink-2); max-width: 74ch; }
+  .fragment strong { color: var(--ink); font-weight: 640; }
 
-  /* ── Sections & cards ───────────────────────────────── */
-  h2 { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
-    color: var(--ink-2); margin: 40px 0 4px; display: flex; align-items: baseline; gap: 8px; }
-  h2 .count { color: var(--muted); font-weight: 500; }
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 14px; padding: 18px 22px; margin-top: 14px; box-shadow: var(--shadow);
-  }
-  .finding { border-left: 4px solid var(--accent); }
-  .finding-head { display: flex; gap: 12px; align-items: center; }
-  .sev-chip {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 12.5px; font-weight: 700; letter-spacing: .03em;
-    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
-    background: color-mix(in srgb, var(--accent) 9%, var(--surface));
-    border-radius: 999px; padding: 2px 11px;
-  }
-  .sev-icon { color: var(--accent); font-size: 10px; }
-  .kind { color: var(--muted); font-size: 13.5px; }
-  .finding-label { font-weight: 650; font-size: 18px; margin-top: 8px; letter-spacing: -0.01em; }
-  .chain-line { color: var(--ink-2); margin-top: 4px; font-size: 15.5px; }
+  /* ── Metrics: one hairline row, no boxes. ────────────────────────── */
+  /* Always exactly four metrics, so the column count is explicit rather than
+     auto-fit: an auto-fit row that wraps 3+1 leaves the hairline background
+     showing through the empty cell as a grey block. */
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 1px; margin-top: 34px; background: var(--hairline);
+    border-top: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline); }
+  @media (max-width: 1040px) { .metrics { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px)  { .metrics { grid-template-columns: 1fr; } }
+  .metric { background: var(--page); padding: 20px 24px 18px; }
+  .metric .value { font-size: clamp(38px, 3.4vw, 52px); font-weight: 620; line-height: 1;
+    letter-spacing: -0.03em; font-variant-numeric: tabular-nums; margin-top: 10px; }
+  .metric .note { font-size: 15px; color: var(--muted); margin-top: 10px; line-height: 1.4; }
+  /* Thin meter, rounded ends, threshold marked and named. */
+  .meter { height: 6px; border-radius: 3px; margin-top: 14px; position: relative;
+    background: color-mix(in srgb, var(--meter-color) 18%, var(--page)); }
+  .meter .fill { position: absolute; inset: 0 auto 0 0; width: var(--meter-fill);
+    background: var(--meter-color); border-radius: 3px; }
+  .meter .tick { position: absolute; top: -4px; bottom: -4px; left: var(--meter-tick);
+    width: 2px; background: var(--ink-2); border-radius: 1px; opacity: .5; }
 
-  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin-top: 10px; }
-  .flow .node {
-    background: color-mix(in srgb, var(--ink) 5%, var(--surface));
-    border: 1px solid var(--border); border-radius: 9px; padding: 5px 14px;
-    font-weight: 600; font-size: 16px;
-  }
-  .flow .link { display: flex; flex-direction: column; align-items: center; padding: 0 12px; line-height: 1.1; }
-  .flow .link-symptom { font-size: 12px; color: var(--muted); font-style: italic; }
-  .flow .link-symptom.hit { color: var(--good); font-weight: 600; font-style: normal; }
-  .flow .link-arrow { font-size: 20px; color: var(--ink-2); }
+  /* ── Patient band: their priority and their concerns, above the fold. ── */
+  .band { display: grid; grid-template-columns: 1.45fr 1fr; gap: 26px; margin-top: 30px; }
+  @media (max-width: 900px) { .band { grid-template-columns: 1fr; gap: 24px; } }
+  .band .panel { background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 24px 26px; box-shadow: var(--shadow); }
+  .quote { font-size: clamp(20px, 1.7vw, 25px); line-height: 1.35; letter-spacing: -0.015em;
+    margin: 14px 0 0; font-weight: 480; }
+  .chips { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
+  .chip { font-size: 16px; font-weight: 560; background: var(--sunken);
+    border: 1px solid var(--border); border-radius: 999px; padding: 5px 14px; color: var(--ink); }
+  .attrib { font-size: 15px; color: var(--muted); margin: 16px 0 0; }
 
-  .confirm { font-size: 13.5px; margin-top: 10px; font-weight: 600; }
+  .redflag { margin-top: 28px; border-radius: 14px; padding: 18px 22px; font-size: 18px;
+    background: color-mix(in srgb, var(--critical) 10%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--critical) 45%, var(--border)); }
+
+  /* ── Sections below the fold ─────────────────────────────────────── */
+  section.block { margin-top: 60px; }
+  section.block > .label { padding-bottom: 12px; border-bottom: 1px solid var(--hairline); }
+  .count { color: var(--muted); font-weight: 500; letter-spacing: 0; }
+
+  /* The accent is inset rather than a full-height border: stacked findings of the
+     same severity would otherwise fuse into one long unbroken bar. */
+  .finding { position: relative; padding: 22px 0 20px 20px; border-bottom: 1px solid var(--hairline); }
+  .finding::before { content: ""; position: absolute; left: 0; top: 22px; bottom: 20px;
+    width: 3px; border-radius: 2px; background: var(--accent); }
+  .finding-head { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .sev-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; font-weight: 660;
+    color: var(--accent); }
+  .sev-icon { font-size: 11px; }
+  .kind { color: var(--muted); font-size: 16px; }
+  .finding-label { font-weight: 620; font-size: 21px; margin: 10px 0 0; letter-spacing: -0.015em; }
+
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 0; margin-top: 12px; }
+  .flow .node { background: var(--sunken); border: 1px solid var(--border); border-radius: 10px;
+    padding: 6px 15px; font-weight: 600; font-size: 17px; margin-right: 8px; }
+  .flow .link { display: flex; flex-direction: column; align-items: center; padding: 0 14px 0 6px;
+    line-height: 1.15; }
+  .flow .link-symptom { font-size: 15px; color: var(--muted); font-style: italic; }
+  .flow .link-symptom.hit { color: var(--good); font-weight: 620; font-style: normal; }
+  .flow .link-arrow { font-size: 21px; color: var(--ink-2); }
+
+  .confirm { font-size: 16px; margin-top: 12px; font-weight: 600; }
   .confirm.yes { color: var(--good); }
   .confirm.no { color: var(--muted); font-weight: 500; }
-  .explain { margin: 10px 0 0; color: var(--ink-2); }
-  .citation { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline);
-    font-size: 13px; color: var(--muted); }
+  .explain { margin: 12px 0 0; color: var(--ink-2); max-width: 78ch; }
+  .citation { margin: 14px 0 0; font-size: 15px; color: var(--muted); max-width: 84ch; }
 
-  /* ── Tables ─────────────────────────────────────────── */
-  table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 15px; }
-  th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--muted); font-weight: 700; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--hairline); }
-  td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  /* ── Tables ──────────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 17px; }
+  th { text-align: left; font-size: 15px; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--muted); font-weight: 640; padding: 12px 16px 12px 0;
+    border-bottom: 1px solid var(--hairline); }
+  td { padding: 14px 16px 14px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
   tr:last-child td { border-bottom: none; }
   td.num { font-variant-numeric: tabular-nums; }
-  .said { color: var(--ink-2); }
-  .ing { font-weight: 600; }
-  .rxcui { font-size: 12.5px; color: var(--muted); font-weight: 400; }
-  .tag {
-    display: inline-block; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border);
-    border-radius: 999px; padding: 1px 9px; color: var(--ink-2); margin-left: 6px; white-space: nowrap;
-  }
-  .tag.warn { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 40%, var(--border));
-    background: color-mix(in srgb, var(--critical) 7%, var(--surface)); }
+  .said { color: var(--ink); }
+  .ing { font-weight: 620; }
+  .rxcui { font-size: 15px; color: var(--muted); font-weight: 400; }
+  .src { font-size: 16px; color: var(--ink-2); white-space: nowrap; }
+  .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 620;
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 11px; color: var(--ink-2);
+    white-space: nowrap; }
+  /* Trust signals must pop: icon + word + colour, never colour alone. */
+  .tag.warn { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 45%, var(--border));
+    background: color-mix(in srgb, var(--critical) 8%, var(--surface)); }
 
-  .quote { font-size: 19px; letter-spacing: -0.01em; }
-  .foot { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--hairline);
-    font-size: 13px; color: var(--muted); max-width: 860px; }
-  code { background: color-mix(in srgb, var(--ink) 6%, var(--surface)); padding: 1px 6px; border-radius: 5px; }
+  .foot { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--hairline);
+    font-size: 15px; color: var(--muted); max-width: 92ch; line-height: 1.55; }
+  code { background: var(--sunken); padding: 1px 7px; border-radius: 6px; font-size: .92em; }
+  .empty { padding: 80px 0; }
 </style>
 </head>
 <body><main>${body}</main></body>
@@ -296,78 +360,125 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
 
 function renderBody(snap: ReviewSnapshot): string {
   const r = snap.review;
-  const cascades = r.findings.filter((f) => f.kind === 'cascade');
-  const confirmedCascades = cascades.filter((f) => f.symptomConfirmed).length;
+  const findings = r.findings;
+  const cascades = findings.filter((f) => f.kind === 'cascade');
+  const highCount = findings.filter((f) => f.severity === 'high').length;
+  // Older snapshots predate the symptoms field; render nothing rather than crash.
+  const symptoms = r.symptoms ?? [];
+  const sources = practices(r.meds);
+
   const acbColor = r.acbScore >= 6 ? 'var(--critical)' : r.acbScore >= 3 ? 'var(--serious)' : 'var(--good)';
   const acbFill = Math.min(100, Math.round((r.acbScore / 12) * 100));
   const acbTick = Math.round((3 / 12) * 100); // clinical threshold marker
   const when = new Date(snap.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
 
-  // Annotate hero chain nodes with the patient's own reason for taking each drug.
-  const whyFor = (ing: string) => {
-    const med = r.meds.find((m) => m.ingredient === ing);
-    return med?.stated_indication ?? '';
-  };
+  const whyFor = (ing: string) => r.meds.find((m) => m.ingredient === ing)?.stated_indication ?? '';
+  /** The cascade finding that links two adjacent chain nodes, for the arrow label. */
+  const linkFor = (a: string, b: string) =>
+    cascades.find((f) => f.implicated[0] === a && f.implicated[1] === b);
 
   const consoleLink = snap.patientId
-    ? `<a href="https://app.medplum.com/Patient/${snap.patientId}" target="_blank">Open in Medplum console &#8599;</a>`
+    ? `<a href="https://app.medplum.com/Patient/${snap.patientId}" target="_blank" rel="noreferrer">Medplum console &#8599;</a>`
     : '';
 
+  // ── Hero ────────────────────────────────────────────────────────────
+  // The chained cascade is the one un-fakeable moment in the demo, so it is the
+  // first thing on the projector. Each node is tagged with the practice that
+  // prescribed it: the fragmentation story and the cascade land as one image.
+  const hero = snap.chains.length ? snap.chains.map((chain, ci) => {
+    const chainPractices = [...new Set(chain.map(practiceOf).filter((p): p is string => !!p))];
+    const Tag = ci === 0 ? 'h1' : 'h2';
+    return `
+  <section class="hero">
+    <${Tag} class="display">${plural(chain.length, 'medication')}.
+      <span class="accent">One root cause.</span></${Tag}>
+    <div class="diagram">
+      ${chain.map((drug, i) => {
+        const prev = chain[i - 1];
+        const link = prev ? linkFor(prev, drug) : undefined;
+        const step = prev ? `
+        <div class="step" aria-hidden="true">
+          <span class="sym">${esc(link?.linkingSymptom ?? 'side effect')}</span>
+          <span class="glyph">&#10230;</span>
+          <span class="caused">treated with</span>
+        </div>` : '';
+        const practice = practiceOf(drug);
+        const why = whyFor(drug);
+        return `${step}
+        <div class="drug">
+          ${practice ? `<span class="practice">${esc(practice)}</span>` : ''}
+          <span class="name">${esc(drug)}</span>
+          ${why ? `<span class="why">&ldquo;${esc(why)}&rdquo;</span>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+    <p class="fragment">Each drug after the first was prescribed for a symptom the one before it
+      caused${chainPractices.length > 1
+        ? `, across <strong>${plural(chainPractices.length, 'practice').toLowerCase()}</strong> that never saw each other's list`
+        : ''}. Found by asking why each was started, not by checking for interactions.</p>
+  </section>`;
+  }).join('') : `
+  <section class="hero">
+    <h1 class="display">No prescribing cascade detected.</h1>
+    <p class="lede">The engine ran the full table and found no drug being used to treat another
+    drug's side effect. A clean result is a result.</p>
+  </section>`;
+
+  // ── Patient band ────────────────────────────────────────────────────
+  const priority = r.patientGoals.length ? `
+    <div class="panel">
+      <p class="label">What they would most like to stop</p>
+      ${r.patientGoals.map((g) => `<p class="quote">&ldquo;${esc(g)}&rdquo;</p>`).join('')}
+      <p class="attrib">The patient's own words, recorded as a FHIR Goal with
+        <code>expressedBy</code> = the patient. Their stated preference, not a prediction.</p>
+    </div>` : '';
+
+  const concerns = symptoms.length ? `
+    <div class="panel">
+      <p class="label">Concerns they raised <span class="count">${symptoms.length}</span></p>
+      <div class="chips">
+        ${symptoms.map((s) => `<span class="chip" title="${esc(s.patient_words)}">${esc(s.symptom)}</span>`).join('')}
+      </div>
+      <p class="attrib">Asked and answered on the same call. Four of these are the linking
+        symptoms that confirmed a cascade.</p>
+    </div>` : '';
+
+  const band = priority || concerns ? `<div class="band">${priority}${concerns}</div>` : '';
+
+  // ── Written-to-FHIR block ───────────────────────────────────────────
   const written = snap.written ? `
-  <h2>Written to Medplum as FHIR</h2>
-  <div class="card">
-    MedicationStatement &times; ${snap.written.meds} &middot; Flag &times; ${snap.written.flags} &middot;
-    DetectedIssue &times; ${snap.written.cascades} &middot; Goal &times; ${snap.written.goals}${snap.written.risk ? ' &middot; RiskAssessment' : ''}
+  <section class="block">
+    <p class="label">Written to Medplum as FHIR</p>
+    <p class="lede" style="font-size:17px">
+      MedicationStatement &times; ${snap.written.meds} &middot; Flag &times; ${snap.written.flags} &middot;
+      DetectedIssue &times; ${snap.written.cascades} &middot; Goal &times; ${snap.written.goals}${snap.written.risk ? ' &middot; RiskAssessment' : ''}
+    </p>
     ${snap.written.resources?.length ? `
-    <table style="margin-top:12px">
-      <thead><tr><th style="width:190px">Resource</th><th>Content</th><th>Notes written with it</th></tr></thead>
+    <table>
+      <thead><tr><th style="width:210px">Resource</th><th>Content</th><th>Notes written with it</th></tr></thead>
       <tbody>
-      ${snap.written.resources.map((r) => `
+      ${snap.written.resources.map((res) => `
         <tr>
-          <td><a href="https://app.medplum.com/${r.type}/${r.id}" target="_blank">${r.type}</a></td>
-          <td>${esc(r.label)}</td>
-          <td class="muted">${r.note ? esc(r.note) : '&mdash;'}</td>
+          <td><a href="https://app.medplum.com/${res.type}/${res.id}" target="_blank" rel="noreferrer">${res.type}</a></td>
+          <td>${esc(res.label)}</td>
+          <td class="muted">${res.note ? esc(res.note) : '&mdash;'}</td>
         </tr>`).join('')}
       </tbody>
     </table>` : ''}
-    <div class="citation">DetectedIssue carries <code>implicated</code> in causal order. Recommendation resources are
-    written as <em>preliminary / draft / proposed</em> (DetectedIssue&nbsp;preliminary &middot; RiskAssessment&nbsp;preliminary &middot;
-    CarePlan&nbsp;draft &middot; Communication&nbsp;preparation &middot; Goal&nbsp;proposed). A clinician confirms before anything becomes final.</div>
-
-  </div>` : '';
-
-  // The chained cascade is the one un-fakeable moment in the demo. It leads the
-  // page so it is on the projector within the first seconds, before any stat
-  // tile. Everything below it is supporting evidence.
-  const hero = snap.chains.length ? snap.chains.map((chain, i) => `
-  <section class="hero">
-    ${/* One h1 per document: the first chain owns it, any others are h2. */ ''}
-    <${i === 0 ? 'h1' : 'h2'} class="hero-claim">${plural(chain.length, 'medication')}. One root cause.</${i === 0 ? 'h1' : 'h2'}>
-    <div class="diagram">
-      ${chain.map((drug, i) => `
-        ${i > 0 ? '<span class="arrow-col" aria-hidden="true">&#10230;</span>' : ''}
-        <span class="drug">
-          <span class="name">${esc(drug)}</span>
-          ${whyFor(drug) ? `<span class="why">&ldquo;${esc(whyFor(drug))}&rdquo;</span>` : ''}
-        </span>`).join('')}
-    </div>
-    <p class="caption">Each drug after the first was prescribed for a symptom the one before it caused.
-    Found by asking why each was started, not by checking for interactions.</p>
-  </section>`).join('') : `
-  <section class="hero hero-clear">
-    <h1 class="hero-claim">No prescribing cascade detected.</h1>
-    <p class="caption">The engine ran the full table and found no drug being used to treat
-    another drug's side effect. A clean result is a result.</p>
-  </section>`;
+    <p class="citation"><code>DetectedIssue.implicated</code> is written in causal order. Recommendation
+      resources are <em>preliminary / draft / proposed</em> (DetectedIssue&nbsp;preliminary &middot;
+      RiskAssessment&nbsp;preliminary &middot; CarePlan&nbsp;draft &middot; Communication&nbsp;preparation &middot;
+      Goal&nbsp;proposed). A clinician confirms before anything becomes final.</p>
+  </section>` : '';
 
   return `
   <header class="topbar">
     <span class="wordmark">Deprescribe<span class="minus">&minus;</span></span>
-    <span class="sub">
-      <span class="who">${esc(snap.patientLabel ?? 'Synthetic demo patient')}</span>
+    <span class="who">${esc(snap.patientLabel ?? 'Synthetic demo patient')}</span>
+    <span class="rest">
       <span class="pill">synthetic demo</span>
       <span class="pill${snap.source === 'live-call' ? ' live' : ''}">${snap.source === 'live-call' ? '&#9679; live call' : 'canned demo'}</span>
-      <span class="muted">${esc(when)}</span>
+      <span class="muted" style="font-size:15px">${esc(when)}</span>
       ${consoleLink}
     </span>
   </header>
@@ -381,91 +492,99 @@ function renderBody(snap: ReviewSnapshot): string {
       : 'immediate clinician attention required'}:</strong> ${r.redFlags.map(esc).join('; ')}
   </div>` : ''}
 
-  <div class="tiles">
-    <div class="tile" style="--meter-color:${acbColor}; --meter-fill:${acbFill}%; --meter-tick:${acbTick}%">
-      <div class="label">Anticholinergic burden</div>
+  <div class="metrics">
+    <div class="metric" style="--meter-color:${acbColor}; --meter-fill:${acbFill}%; --meter-tick:${acbTick}%">
+      <p class="label">Anticholinergic burden</p>
       <div class="value">${r.acbScore}</div>
       <div class="meter"><span class="fill"></span><span class="tick"></span></div>
-      <div class="note">&ge; 3 is clinically significant. ${r.acbContributors.map((c) => `${esc(c.ingredient)} ${c.score}`).join(', ') || 'No contributors'}</div>
+      <p class="note">Threshold 3. ${r.acbContributors.map((c) => `${esc(c.ingredient)} ${c.score}`).join(', ') || 'No contributors'}</p>
     </div>
-    <div class="tile">
-      <div class="label">Findings</div>
-      <div class="value">${r.findings.length}</div>
-      <div class="note">${r.findings.length
-        ? `${r.findings.filter((f) => f.severity === 'high').length} high severity, every one cited`
-        : 'Nothing met a rule in the tables'}</div>
+    <div class="metric">
+      <p class="label">Findings</p>
+      <div class="value">${findings.length}</div>
+      <p class="note">${findings.length
+        ? `${highCount} high severity, ${cascades.length} prescribing cascade${cascades.length === 1 ? '' : 's'}, every one cited`
+        : 'Nothing met a rule in the tables'}</p>
     </div>
-    <div class="tile">
-      <div class="label">Medications</div>
+    <div class="metric">
+      <p class="label">Medications</p>
       <div class="value">${r.meds.length}</div>
-      <div class="note">${r.unresolvedCount ? `${r.unresolvedCount} unresolved, sent for clinician review` : 'All resolved to RxNorm'}</div>
+      <p class="note">${r.unresolvedCount
+        ? `${r.unresolvedCount} unresolved, sent for clinician review`
+        : 'All resolved to RxNorm'}</p>
     </div>
-    <div class="tile">
-      <div class="label">Prescribing cascades</div>
-      <div class="value">${cascades.length}</div>
-      <div class="note">${confirmedCascades} confirmed by the patient's own symptoms</div>
+    <div class="metric">
+      <p class="label">Prescribing sources</p>
+      <div class="value">${sources.length}</div>
+      <p class="note">${sources.length ? esc(sources.join(', ')) : 'Not attributed'}</p>
     </div>
   </div>
 
-  <h2>Findings <span class="count">${r.findings.length}</span></h2>
-  ${r.findings.length
-    ? r.findings.map(findingCard).join('')
-    : `<div class="card empty">
-        <p>No findings. Every medication was checked against the Beers, STOPP/START,
-        anticholinergic, duplication and cascade tables, and none matched.</p>
-        <p class="muted">The engine reports what the tables contain. It does not invent findings
-        to fill a screen.</p>
-      </div>`}
+  ${band}
 
-  <h2>Medications, in the patient's own words <span class="count">${r.meds.length}</span></h2>
-  <div class="card">
+  <section class="block">
+    <p class="label">Findings <span class="count">${findings.length}</span></p>
+    ${findings.length
+      ? findings.map(findingCard).join('')
+      : `<p class="lede">No findings. Every medication was checked against the Beers, STOPP/START,
+          anticholinergic, duplication and cascade tables, and none matched. The engine reports what
+          the tables contain; it does not invent findings to fill a screen.</p>`}
+  </section>
+
+  <section class="block">
+    <p class="label">Medications, in the patient's own words <span class="count">${r.meds.length}</span></p>
     <table>
-      <thead><tr><th style="width:38%">Patient said</th><th>Resolved</th><th>Why they take it</th></tr></thead>
+      <thead><tr>
+        <th style="width:34%">Patient said</th>
+        <th>Resolved</th>
+        <th style="width:16%">Prescribed by</th>
+        <th style="width:24%">Why they take it</th>
+      </tr></thead>
       <tbody>
-      ${r.meds.map((m) => `
+      ${r.meds.map((m) => {
+        const src = practiceOf(m.ingredient);
+        return `
         <tr>
           <td class="said">&ldquo;${esc(m.spoken_as)}&rdquo;</td>
           <td>${m.ingredient
             ? `<span class="ing">${esc(m.ingredient)}</span> <span class="rxcui">rxcui ${esc(m.rxcui ?? '')}</span>`
-            : '<span class="tag warn">unresolved &rarr; clinician review</span>'}${m.otc ? '<span class="tag">OTC</span>' : ''}</td>
-          <td>${m.stated_indication ? esc(m.stated_indication) : '<span class="tag warn">none stated</span>'}</td>
-        </tr>`).join('')}
+            : '<span class="tag warn">&#9888; unresolved, clinician review</span>'}${m.otc ? ' <span class="tag">OTC</span>' : ''}</td>
+          <td class="src">${src ? esc(src) : '&mdash;'}</td>
+          <td>${m.stated_indication ? esc(m.stated_indication) : '<span class="tag warn">&#9888; none stated</span>'}</td>
+        </tr>`;
+      }).join('')}
       </tbody>
     </table>
-  </div>
-
-  ${r.patientGoals.length ? `
-  <h2>What matters to the patient</h2>
-  <div class="card">
-    ${r.patientGoals.map((g) => `<div class="quote">&ldquo;${esc(g)}&rdquo;</div>`).join('')}
-    <div class="citation">Recorded as FHIR Goal with <code>expressedBy</code> = the patient, not the clinician.</div>
-  </div>` : ''}
+    <p class="citation">Unresolved names are never guessed: the patient's verbatim words are kept and
+      sent for clinician review. Prescriber attribution is synthetic demo data.</p>
+  </section>
 
   ${snap.taper?.steps?.length ? `
-  <h2>Draft taper, ${esc(snap.taper.drug)}</h2>
-  <div class="card">
+  <section class="block">
+    <p class="label">Draft taper, ${esc(snap.taper.drug)}</p>
     <table>
-      <thead><tr><th style="width:70px">Week</th><th style="width:180px">Dose</th><th>Note</th></tr></thead>
+      <thead><tr><th style="width:90px">Week</th><th style="width:200px">Dose</th><th>Note</th></tr></thead>
       <tbody>${snap.taper.steps.map((s) => `
         <tr><td class="num">${s.week}</td><td>${esc(s.dose)}</td><td class="muted">${esc(s.note)}</td></tr>`).join('')}
       </tbody>
     </table>
-    <div class="citation">Instantiated from the published deprescribing.org algorithm. Draft CarePlan, requires clinician sign-off.</div>
-  </div>` : ''}
+    <p class="citation">Instantiated from the published deprescribing.org algorithm. Draft CarePlan,
+      requires clinician sign-off.</p>
+  </section>` : ''}
 
   ${snap.objection ? `
-  <h2>Reviewer objection, peer review</h2>
-  <div class="card">
-    <p class="explain" style="margin:0">${esc(snap.objection)}</p>
-    <div class="citation">Generated by an adversarial reviewer agent before any clinician sees the plan.</div>
-  </div>` : ''}
+  <section class="block">
+    <p class="label">Reviewer objection, peer review</p>
+    <p class="explain" style="margin-top:14px">${esc(snap.objection)}</p>
+    <p class="citation">Generated by an adversarial reviewer agent before any clinician sees the plan.</p>
+  </section>` : ''}
 
   ${written}
 
-  <div class="foot">
-    Detection is deterministic: a citation-backed table lookup with zero LLM calls. The model
-    never decides what is clinically wrong. Ranked options with visible citations, nothing
-    time-critical, recommendation resources preliminary/draft pending clinician review (FDA Non-Device CDS posture).
-    Synthetic data only.
-  </div>`;
+  <p class="foot">
+    Detection is deterministic: a citation-backed table lookup with zero LLM calls. The model never
+    decides what is clinically wrong. Ranked options with visible citations, nothing time-critical,
+    recommendation resources preliminary/draft pending clinician review (FDA Non-Device CDS posture).
+    Synthetic data only; prescriber attribution is synthetic.
+  </p>`;
 }

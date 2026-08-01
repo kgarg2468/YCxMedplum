@@ -82,6 +82,10 @@ export const DEMO_PRESCRIBERS: Record<string, string> = {
   benzonatate: 'Urgent care',
   diphenhydramine: 'Self (OTC)',
   senna: 'Self (OTC)',
+  // RxNorm resolves "senna" to the ingredient "sennosides, usp", and the lookup
+  // key everywhere is the resolved ingredient. Without this alias the panel and
+  // the FHIR writers both report senna as having no prescribing source.
+  'sennosides, usp': 'Self (OTC)',
 };
 
 /** Approximate durations of use, in weeks — drives the duration-gated PIM rules. */

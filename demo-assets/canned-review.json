@@ -295,6 +295,44 @@
     "patientGoals": [
       "The sleeping pill. I don't think it even works anymore, and I hate feeling like this in the mornings. I just want to feel clear again."
     ],
+    "symptoms": [
+      {
+        "symptom": "dry mouth",
+        "patient_words": "Terrible dry mouth, all the time."
+      },
+      {
+        "symptom": "near-fall",
+        "patient_words": "I caught myself on the counter last month. Didn't fall, but it was close."
+      },
+      {
+        "symptom": "foggy mornings",
+        "patient_words": "Very foggy. Especially the mornings. My daughter's noticed it too."
+      },
+      {
+        "symptom": "dizziness on standing",
+        "patient_words": "Sometimes, yes."
+      },
+      {
+        "symptom": "constipation",
+        "patient_words": "That's why I take the senna. Nothing moves without it."
+      },
+      {
+        "symptom": "ankle swelling",
+        "patient_words": "Still a bit, yes, even with the water pill."
+      },
+      {
+        "symptom": "urgency",
+        "patient_words": "That one's for my bladder — I was having accidents, a lot of urgency."
+      },
+      {
+        "symptom": "gout",
+        "patient_words": "I got the gout in my big toe, terrible pain."
+      },
+      {
+        "symptom": "dry cough",
+        "patient_words": "I've had this dry cough for, oh, two years now. Just a tickle in my throat that won't quit."
+      }
+    ],
     "unresolvedCount": 0
   },
   "chains": [
