@@ -1091,7 +1091,7 @@ npm run panel:canned
 npm run server
 ```
 
-Open `http://localhost:3000/review` and manually verify:
+Open `http://127.0.0.1:3001/review` and manually verify:
 
 - desktop layout;
 - narrow mobile layout;

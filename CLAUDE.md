@@ -57,7 +57,7 @@ npm run demo:fast     # extract + resolve + detect, no Medplum writes (needs ANT
 npm run demo          # full pipeline incl. FHIR writes (needs Medplum credentials)
 npm run seed          # create the synthetic demo patient
 npm run server        # Vapi webhook on :3000 (expose with npx localtunnel --port 3000)
-                      # review panel: http://localhost:3000/review (src/ui/panel.ts)
+                      # review panel: http://127.0.0.1:3001/review (src/ui/panel.ts)
 ```
 
 Before claiming any change works: `npm run typecheck && npm test`. The engine test

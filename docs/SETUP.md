@@ -1,133 +1,98 @@
-# SETUP.md — the fiddly parts
+# Setup for the cross-prescriber demo
 
-Both of these are more annoying than they look and both are on the critical path.
-Do them at 10:00, not at 13:00.
+Use only synthetic data. Keep every credential in the local environment or an
+approved secret manager; do not place values in documentation, Git, terminal
+history, screenshots, logs, or rehearsal notes.
 
----
+For the complete operating sequence, continue with
+[DEMO_CROSS_PRESCRIBER.md](DEMO_CROSS_PRESCRIBER.md) after setup.
 
-## Medplum (person D, ~20 min)
+## Medplum ClientApplication
 
-You need a **ClientApplication** — machine-to-machine credentials. This is not the
-same as your login, and it's the step people lose 40 minutes on.
-
-1. Sign up at [app.medplum.com](https://app.medplum.com). This creates a Project.
-2. Left nav → **Project** → **Clients** → **New ClientApplication**. Name it anything.
-3. Copy the **ID** and **Secret** into `.env` as `MEDPLUM_CLIENT_ID` /
-   `MEDPLUM_CLIENT_SECRET`. The secret is shown once.
-4. `MEDPLUM_BASE_URL=https://api.medplum.com`
-5. Verify before writing any other code:
+1. Sign in to the Medplum app and select the project reserved for synthetic demo
+   data.
+2. Open **Project → Clients → New ClientApplication**.
+3. Create the client, copy its ID and one-time secret into the local runtime under
+   `MEDPLUM_CLIENT_ID` and `MEDPLUM_CLIENT_SECRET`, and configure
+   `MEDPLUM_BASE_URL` locally.
+4. Ensure the client has the minimum project access needed to read the synthetic
+   chart and create review resources.
+5. Seed the chart:
 
 ```bash
 npm run seed
 ```
 
-You should get `Seeded Patient/<uuid> with 5 conditions`. If you get a 401, the
-ClientApplication needs an AccessPolicy — or, faster for a hackathon, confirm it's in
-the same Project as your login and has no restrictive policy attached.
+The seeded data must remain synthetic and tagged accordingly. A second seed must
+reuse the same patient, five practitioners, five conditions, and nine active
+`MedicationRequest` resources.
 
-**Local alternative** if the hosted API is slow or you want offline resilience:
+## Runtime names
+
+Store values locally under these exact names; this list intentionally shows names
+only:
+
+- `ANTHROPIC_API_KEY`
+- `MEDPLUM_BASE_URL`
+- `MEDPLUM_CLIENT_ID`
+- `MEDPLUM_CLIENT_SECRET`
+- `VAPI_API_KEY`
+- `VAPI_ASSISTANT_ID`
+- `VAPI_PHONE_NUMBER_ID`
+- `VAPI_SERVER_CREDENTIAL_ID`
+- `VAPI_WEBHOOK_SECRET`
+- `DEMO_START_SECRET`
+- `DEMO_CUSTOMER_NUMBER`
+- `REVIEW_PORT`
+
+For this demo, the public webhook listener is port 3000 and the local review/start
+listener is `127.0.0.1:3001`.
+
+## Vapi and Deepgram
+
+Vapi is the call orchestrator. Configure Deepgram Nova-3 transcription and
+Deepgram Aura speech through Vapi. Do not configure a direct Deepgram Voice Agent
+integration.
+
+In the Vapi dashboard:
+
+1. Configure the assistant, outbound phone-number resource, and their IDs in the
+   local runtime.
+2. Create a **Bearer Token Custom Credential** whose secret is the same locally
+   stored secret named `VAPI_WEBHOOK_SECRET`.
+3. Store only that credential's ID under `VAPI_SERVER_CREDENTIAL_ID`.
+4. Confirm the assistant server uses the credential ID. Vapi will send the webhook
+   secret in its authorization bearer header; the server verifies it before
+   acknowledging or processing a webhook.
+
+Start the two local listeners:
 
 ```bash
-npx medplum-agent-installer   # no — use docker instead:
-git clone https://github.com/medplum/medplum && cd medplum
-docker compose up             # API on http://localhost:8103, app on :3000
+npm run server
 ```
 
-Then `MEDPLUM_BASE_URL=http://localhost:8103`. Worth doing if venue wifi looks bad —
-a local server removes one network dependency from your demo.
+Tunnel only the public webhook port:
 
-**Demo surface:** don't build a UI. Open the Medplum console to your patient and use
-the resource browser. It renders `DetectedIssue` and `Flag` cleanly and it's *more*
-persuasive to Medplum's founders than anything you'd hand-roll. If you want one custom
-panel, use `@medplum/react` components (`<ResourceTable>`, `<ResourceBadge>`) rather
-than writing your own.
-
----
-
-## Voice platform (person A, ~45 min)
-
-**Vapi or Retell.** Both are webhook-based and get you a working call fastest. Do not
-build turn-taking, VAD, or interruption handling yourself — that is a day of work and
-it is not what you're being judged on.
-
-### Vapi
-
-1. Create an assistant at [dashboard.vapi.ai](https://dashboard.vapi.ai).
-2. **System prompt:** paste `VOICE_SYSTEM_PROMPT` from `src/voice/prompt.ts`.
-3. **First message:** paste `VOICE_FIRST_MESSAGE`.
-4. **Model:** Anthropic → `claude-haiku-4-5-20251001`. Latency is the entire UX here;
-   do not use a reasoning model in the conversational loop.
-5. **Transcriber:** Deepgram Nova. **Voice:** anything calm — ElevenLabs or Cartesia.
-6. **Server URL:** your webhook (see below). Subscribe to `end-of-call-report` for the
-   full transcript, and `transcript` if you want per-turn red-flag checking.
-
-### The webhook
-
-Minimum viable — expose it with `npx localtunnel --port 3000` or ngrok:
-
-```ts
-// src/server.ts
-import express from 'express';
-import { extractWithRetry } from './llm/extract.js';
-import { resolveAll } from './rxnav.js';
-import { runReview } from './engine/detect.js';
-import { checkRedFlags } from './voice/prompt.js';
-import { DEMO_CONDITIONS, DEMO_DURATIONS } from './fhir/seed.js';
-
-const app = express();
-app.use(express.json());
-
-app.post('/vapi', async (req, res) => {
-  const msg = req.body?.message;
-
-  // Per-turn red flag check. Do NOT wait for end of call for this.
-  if (msg?.type === 'transcript' && msg.role === 'user') {
-    const flags = checkRedFlags(msg.transcript ?? '');
-    if (flags.length) console.warn('RED FLAG:', flags);
-  }
-
-  if (msg?.type === 'end-of-call-report') {
-    const transcript = msg.artifact?.transcript ?? '';
-    const ex = await extractWithRetry(transcript);
-    const meds = await resolveAll(ex.medications);
-    const review = runReview({
-      meds, symptoms: ex.symptoms, conditions: DEMO_CONDITIONS,
-      values: ex.values, redFlags: ex.red_flags, durationsWeeks: DEMO_DURATIONS,
-    });
-    console.log(`${review.findings.length} findings, ACB ${review.acbScore}`);
-    // then persistReview(medplum, patient, review)
-  }
-  res.sendStatus(200);
-});
-
-app.listen(3000);
+```bash
+npx localtunnel --port 3000
 ```
 
-### Two things that will bite you
+After placing the returned origin in `PUBLIC_VAPI_ORIGIN`, update the assistant:
 
-**Run extraction asynchronously, not blocking the conversation.** Extract after each
-turn or at end-of-call, never in the reply path. If the patient waits 3 seconds
-between questions the demo feels broken. Async extraction is also what makes the
-"resources appearing live in the console" moment work.
-
-**Test with an actual phone call, not the dashboard's web widget.** Web-widget audio
-is cleaner than telephony and will hide ASR problems you'll hit on stage.
-
----
-
-## Order of operations
-
-Person C (engine) is **not blocked by either of the above** — `npm run demo:fast`
-works offline against the canned transcript. Start them immediately; they own the
-differentiator and should not be waiting on credentials.
-
-```
-10:00  A → Vapi assistant + webhook       D → Medplum ClientApplication + npm run seed
-       B → extraction against canned transcript
-       C → cascade table + engine (offline, unblocked)
-
-12:15  First integration: A's transcript → B's extraction → C's engine → D's FHIR
+```bash
+npm run vapi:setup -- "$PUBLIC_VAPI_ORIGIN/vapi"
 ```
 
-Do that integration at 12:15 even if each piece is ugly. A working ugly pipeline at
-lunch beats four polished pieces that have never spoken to each other at 16:00.
+The tunneled listener must expose only authenticated `POST /vapi` and a
+metadata-free `/health`. It must not expose `/demo/start-call`, `/review`, or
+`/review.json`. Those routes stay on `127.0.0.1:3001`.
+
+Start the outbound demo call only after both listeners and the assistant update are
+ready:
+
+```bash
+npm run demo:call
+```
+
+No setup step should print a bearer token, authorization header, full customer
+number, API key, complete chart context, or client secret.

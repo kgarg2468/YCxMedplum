@@ -8,14 +8,15 @@
     "demo": "tsx --env-file-if-exists=.env src/demo/run.ts",
     "demo:fast": "tsx --env-file-if-exists=.env src/demo/run.ts --no-fhir",
     "demo:full": "tsx --env-file-if-exists=.env src/demo/run.ts --explain",
+    "demo:call": "tsx --env-file-if-exists=.env src/demo/startCall.ts",
+    "demo:inspect": "tsx --env-file-if-exists=.env src/demo/inspectChart.ts",
     "server": "tsx --env-file-if-exists=.env src/server.ts",
-    "test": "tsx src/test/engine.test.ts",
-    "test:redflags": "tsx src/test/redflags.test.ts",
+    "test": "tsx src/fhir/seed.test.ts && tsx src/test/engine.test.ts && tsx src/test/redflags.test.ts && tsx src/context/loadChartContext.test.ts && tsx src/context/compareMedicationState.test.ts && tsx src/voice/buildPrefill.test.ts && tsx src/llm/extract.test.ts && tsx src/voice/callCoordinator.test.ts && tsx src/fhir/writers.test.ts && tsx src/ui/panel.test.ts && tsx src/server.test.ts",
     "sentinel:measure": "MOSS_MODE=on tsx --env-file-if-exists=.env src/test/redflags.live.ts",
     "sentinel:try": "tsx --env-file-if-exists=.env src/test/sentinel-try.ts",
     "typecheck": "tsc --noEmit",
     "vapi:setup": "tsx --env-file-if-exists=.env src/voice/createAssistant.ts",
-    "panel:canned": "cp demo-assets/canned-review.json out/last-review.json && echo 'Panel reset to full canned dataset \u2014 repaints in ~3s'"
+    "panel:canned": "mkdir -p out && cp demo-assets/canned-review.json out/last-review.json && echo 'Panel reset to full canned dataset — repaints in ~3s'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.65.0",

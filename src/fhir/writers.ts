@@ -15,64 +15,181 @@
  *   Goal                 patient values as a first-class clinical object
  *   CarePlan + Task      the taper schedule as real scheduled activities
  *   Communication        the message to the prescriber
+ *
+ * IDEMPOTENCY. Every resource written here carries the `review-output` tag (so a
+ * later chart load never feeds review output back into the next call) and a
+ * deterministic identifier:
+ *
+ *     https://ycxmedplum.dev/call-output  |  runId:writerPurpose:sha256(identity)
+ *
+ * The identity is the resource's stable CLINICAL identity — never its position in
+ * an array — so a retry of a partially failed call updates the same resources
+ * instead of duplicating them. `writerPurpose` is unique per writer, so two
+ * families can never collide on the same identity string.
  */
 
+import { createHash } from 'node:crypto';
 import type { MedplumClient } from '@medplum/core';
 import type {
   Patient, MedicationStatement, Flag, RiskAssessment, DetectedIssue,
-  Goal, CarePlan, Task, Communication, Composition, Narrative, Reference, Resource,
+  Goal, CarePlan, Task, Communication, Reference, Resource, Identifier,
 } from '@medplum/fhirtypes';
 import type { Finding, ResolvedMed, ReviewResult } from '../types.js';
-import { DEMO_PRESCRIBERS } from './seed.js';
-import { detectCascadeChains } from '../engine/detect.js';
+import type { ReviewWriteOptions } from '../context/types.js';
+import { REVIEW_OUTPUT_TAG } from './seed.js';
 
 const RXNORM = 'http://www.nlm.nih.gov/research/umls/rxnorm';
+const CITATION_URL = 'https://example.org/fhir/StructureDefinition/citation';
+
+export const OUTPUT_IDENTIFIER_SYSTEM = 'https://ycxmedplum.dev/call-output';
+
+/** Unique across every resource-producing path. */
+export type WriterPurpose =
+  | 'medication'
+  | 'pim-flag'
+  | 'acb-risk'
+  | 'cascade-issue'
+  | 'goal'
+  | 'taper-care-plan'
+  | 'taper-task'
+  | 'prescriber-communication'
+  | 'red-flag-flag'
+  | 'red-flag-task';
+
+/** Note attached to a medication the chart already knew and the patient confirmed. */
+export const CHART_CONFIRMED_NOTE = 'Chart record confirmed by patient; not restated verbatim';
 
 /** Generic so Medplum's narrowed Reference<T> targets typecheck. */
 function ref<T extends Resource>(r: T): Reference<T> {
   return { reference: `${r.resourceType}/${r.id}` } as Reference<T>;
 }
 
-// ─── FHIR narratives — what the Medplum console actually renders ────────────
-// Without text.div the console falls back to a raw field dump. Narratives are
-// the spec's own mechanism for human display (status: "generated"), so every
-// resource we write gets one. Keep to plain XHTML (b/i/p/table) — console
-// sanitizers strip fancy styling.
-
-const escX = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-function xhtml(inner: string): Narrative {
-  return { status: 'generated', div: `<div xmlns="http://www.w3.org/1999/xhtml">${inner}</div>` };
+function normalize(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-/** Synthetic practice tag for the cross-practice story. Always labeled as such. */
-function practice(ingredient: string | null): string {
-  return (ingredient && DEMO_PRESCRIBERS[ingredient]) || 'Unknown practice';
+/** Hashed so the identifier stays bounded and presentation-safe. */
+export function outputIdentifier(
+  runId: string,
+  purpose: WriterPurpose,
+  identity: string,
+): Identifier {
+  const digest = createHash('sha256').update(identity).digest('hex');
+  return { system: OUTPUT_IDENTIFIER_SYSTEM, value: `${runId}:${purpose}:${digest}` };
 }
+
+const outputMeta = () => ({ tag: [REVIEW_OUTPUT_TAG] });
+
+/**
+ * Write ordinals are shared across every writer that receives the same options
+ * object, so `beforeWrite(n)` can name one specific write in a persistReview run
+ * (that is how the retry test injects a partial failure).
+ */
+const ordinals = new WeakMap<ReviewWriteOptions, { n: number }>();
+
+function nextOrdinal(options: ReviewWriteOptions): number {
+  let counter = ordinals.get(options);
+  if (!counter) {
+    counter = { n: 0 };
+    ordinals.set(options, counter);
+  }
+  counter.n += 1;
+  return counter.n;
+}
+
+/** Search by identifier, update when found, create only when absent. */
+async function upsert<T extends Resource>(
+  medplum: MedplumClient,
+  options: ReviewWriteOptions,
+  purpose: WriterPurpose,
+  identity: string,
+  build: (identifier: Identifier) => T,
+): Promise<T> {
+  const identifier = outputIdentifier(options.runId, purpose, identity);
+  const resource = build(identifier);
+
+  const existing = (await medplum.searchResources(resource.resourceType, {
+    identifier: `${OUTPUT_IDENTIFIER_SYSTEM}|${identifier.value}`,
+    _count: '1',
+  }))[0];
+
+  options.beforeWrite?.(nextOrdinal(options));
+
+  if (existing?.id) {
+    return await medplum.updateResource<T>({ ...resource, id: existing.id });
+  }
+  return await medplum.createResource<T>(resource);
+}
+
+/** Sort by canonical identity so write order — and beforeWrite — is deterministic. */
+function inIdentityOrder<T>(items: T[], identity: (item: T) => string): { item: T; identity: string }[] {
+  return items
+    .map((item) => ({ item, identity: identity(item) }))
+    .sort((a, b) => a.identity.localeCompare(b.identity));
+}
+
+/** Findings: kind + sorted implicated ingredients + rule label. Never array index. */
+function findingIdentity(f: Finding): string {
+  return `${f.kind}|${[...f.implicated].map(normalize).sort().join('+')}|${normalize(f.label)}`;
+}
+
+/**
+ * Medications: provenance + ingredient (falling back to the patient's own words
+ * when RxNav could not resolve it) + occurrence, so two genuinely separate
+ * entries for the same ingredient stay separate without depending on position.
+ */
+function medicationIdentities(meds: ResolvedMed[]): string[] {
+  const seen = new Map<string, number>();
+  return meds.map((m) => {
+    const base = `${m.provenance}|${normalize(m.ingredient ?? m.name_guess ?? m.spoken_as)}`;
+    const occurrence = (seen.get(base) ?? 0) + 1;
+    seen.set(base, occurrence);
+    return `${base}|${occurrence}`;
+  });
+}
+
+const subjectIdentity = (patient: Patient) => `Patient/${patient.id ?? 'unknown'}`;
 
 // ─── MedicationStatement ─────────────────────────────────────────────────────
+
+function medicationNotes(m: ResolvedMed): { text: string }[] {
+  const notes: { text: string }[] = m.provenance === 'chart-confirmed'
+    // The chart is the source and the patient said "yes". Inventing a verbatim
+    // quote here would be a fabrication; the confidence we have is MATCH
+    // confidence, not extraction confidence, so neither is presented as one.
+    ? [{ text: CHART_CONFIRMED_NOTE }]
+    : [
+      { text: `Patient said: "${m.spoken_as}"` },
+      { text: `Extraction confidence: ${m.confidence}` },
+    ];
+  if (m.unresolved) {
+    notes.push({ text: 'UNRESOLVED — could not be matched to RxNorm. Requires clinician confirmation.' });
+  }
+  if (m.otc) notes.push({ text: 'Reported as over-the-counter / supplement' });
+  return notes;
+}
 
 export async function writeMedications(
   medplum: MedplumClient,
   patient: Patient,
   meds: ResolvedMed[],
+  options: ReviewWriteOptions,
 ): Promise<MedicationStatement[]> {
-  const out: MedicationStatement[] = [];
+  const identities = medicationIdentities(meds);
+  const ordered = meds
+    .map((m, i) => ({ med: m, identity: identities[i], index: i }))
+    .sort((a, b) => a.identity.localeCompare(b.identity));
 
-  for (const m of meds) {
-    const created = await medplum.createResource<MedicationStatement>({
+  // Callers join findings to these by array position, so the returned array
+  // keeps the caller's order even though the writes are identity-ordered.
+  const out = new Array<MedicationStatement>(meds.length);
+
+  for (const { med: m, identity, index } of ordered) {
+    out[index] = await upsert<MedicationStatement>(medplum, options, 'medication', identity, (identifier) => ({
       resourceType: 'MedicationStatement',
+      identifier: [identifier],
+      meta: outputMeta(),
       status: 'active',
-      text: xhtml(
-        `<p><b>${escX(m.ingredient ?? 'UNRESOLVED MEDICATION')}</b>` +
-        `${m.strength || m.frequency ? ` — ${escX([m.strength, m.frequency].filter(Boolean).join(', '))}` : ''}</p>` +
-        (m.unresolved ? `<p><b>&#9888; UNRESOLVED — could not match to RxNorm. Needs clinician confirmation.</b></p>` : '') +
-        `<p>Patient said: <i>&#8220;${escX(m.spoken_as)}&#8221;</i></p>` +
-        `<p>Why they take it: ${m.stated_indication ? escX(m.stated_indication) : '<b>&#9888; none stated</b>'}</p>` +
-        `<p>Prescribed by: <b>${escX(practice(m.ingredient))}</b> <i>(synthetic demo attribution)</i>` +
-        ` &#183; Extraction confidence: ${m.confidence}${m.otc ? ' &#183; OTC/self-administered' : ''}</p>`,
-      ),
       subject: ref(patient),
       dateAsserted: new Date().toISOString(),
       medicationCodeableConcept: m.rxcui
@@ -86,14 +203,8 @@ export async function writeMedications(
       reasonCode: m.stated_indication
         ? [{ text: m.stated_indication }]
         : undefined,
-      note: [
-        { text: `Patient said: "${m.spoken_as}"` },
-        { text: `Extraction confidence: ${m.confidence}` },
-        ...(m.unresolved ? [{ text: 'UNRESOLVED — could not be matched to RxNorm. Requires clinician confirmation.' }] : []),
-        ...(m.otc ? [{ text: 'Reported as over-the-counter / supplement' }] : []),
-      ],
-    });
-    out.push(created);
+      note: medicationNotes(m),
+    }));
   }
   return out;
 }
@@ -104,17 +215,17 @@ export async function writePimFlags(
   medplum: MedplumClient,
   patient: Patient,
   findings: Finding[],
+  options: ReviewWriteOptions,
 ): Promise<Flag[]> {
   const pims = findings.filter((f) => f.kind === 'pim' || f.kind === 'duplicate');
-  return Promise.all(pims.map((f) =>
-    medplum.createResource<Flag>({
+  const out: Flag[] = [];
+
+  for (const { item: f, identity } of inIdentityOrder(pims, findingIdentity)) {
+    out.push(await upsert<Flag>(medplum, options, 'pim-flag', identity, (identifier) => ({
       resourceType: 'Flag',
+      identifier: [identifier],
+      meta: outputMeta(),
       status: 'active',
-      text: xhtml(
-        `<p><b>${escX(f.label)}</b> &#183; severity: ${f.severity}</p>` +
-        `<p>Implicated: ${f.implicated.map((i) => `<b>${escX(i)}</b> (${escX(practice(i))})`).join(' &#183; ')}</p>` +
-        `<p><i>Citation: ${escX(f.citation)}</i></p>`,
-      ),
       category: [{ text: 'Medication review' }],
       code: { text: f.label },
       subject: ref(patient),
@@ -122,11 +233,10 @@ export async function writePimFlags(
       author: { display: 'Deprescribing review agent' },
       // The citation is not decoration: FDA's Non-Device CDS criterion 4 requires
       // the clinician be able to independently review the basis.
-      extension: [{
-        url: 'https://example.org/fhir/StructureDefinition/citation',
-        valueString: f.citation,
-      }],
+      extension: [{ url: CITATION_URL, valueString: f.citation }],
     })));
+  }
+  return out;
 }
 
 // ─── RiskAssessment (anticholinergic burden) ─────────────────────────────────
@@ -135,19 +245,17 @@ export async function writeAcbRisk(
   medplum: MedplumClient,
   patient: Patient,
   review: ReviewResult,
+  options: ReviewWriteOptions,
 ): Promise<RiskAssessment | null> {
   if (!review.acbScore) return null;
 
-  return medplum.createResource<RiskAssessment>({
+  // One burden assessment per run and patient. The score itself is deliberately
+  // NOT part of the identity: a retry must correct the resource, not add a second.
+  return upsert<RiskAssessment>(medplum, options, 'acb-risk', `acb|${subjectIdentity(patient)}`, (identifier) => ({
     resourceType: 'RiskAssessment',
+    identifier: [identifier],
+    meta: outputMeta(),
     status: 'preliminary',      // preliminary: computed score awaits clinician confirmation
-    text: xhtml(
-      `<p>Anticholinergic burden (ACB): <b>${review.acbScore}</b> — threshold for clinical significance is 3</p>` +
-      `<table><tr><th>Contributor</th><th>Score</th></tr>` +
-      review.acbContributors.map((c) => `<tr><td>${escX(c.ingredient)}</td><td>${c.score}</td></tr>`).join('') +
-      `</table>` +
-      `<p><i>ACB &#8805; 3 is associated with cognitive decline and falls (ACB scale).</i></p>`,
-    ),
     subject: ref(patient),
     occurrenceDateTime: new Date().toISOString(),
     method: { text: 'Anticholinergic Cognitive Burden (ACB) scale' },
@@ -161,8 +269,8 @@ export async function writeAcbRisk(
         `ACB score ${review.acbScore} from: ` +
         review.acbContributors.map((c) => `${c.ingredient} (${c.score})`).join(', '),
     }],
-    note: [{ text: 'ACB \u2265 3 is associated with measurable cognitive decline and increased fall risk.' }],
-  });
+    note: [{ text: 'ACB ≥ 3 is associated with measurable cognitive decline and increased fall risk.' }],
+  }));
 }
 
 // ─── DetectedIssue (prescribing cascade) — the deep cut ──────────────────────
@@ -172,38 +280,36 @@ export async function writeCascades(
   patient: Patient,
   findings: Finding[],
   medRefs: Map<string, MedicationStatement>,
+  options: ReviewWriteOptions,
 ): Promise<DetectedIssue[]> {
   const cascades = findings.filter((f) => f.kind === 'cascade');
+  const out: DetectedIssue[] = [];
 
-  return Promise.all(cascades.map((f) => {
+  for (const { item: f, identity } of inIdentityOrder(cascades, findingIdentity)) {
+    // implicated[] in causal order: trigger drug first, treating drug second.
     const implicated = f.implicated
       .map((ing) => medRefs.get(ing))
       .filter((m): m is MedicationStatement => Boolean(m))
       .map(ref);
 
-    const [trigger, treater] = f.implicated;
-    return medplum.createResource<DetectedIssue>({
+    out.push(await upsert<DetectedIssue>(medplum, options, 'cascade-issue', identity, (identifier) => ({
       resourceType: 'DetectedIssue',
+      identifier: [identifier],
+      meta: outputMeta(),
       status: 'preliminary',       // preliminary: awaiting clinician confirmation
-      text: xhtml(
-        `<p><b>${escX(trigger)}</b> <i>(${escX(practice(trigger))})</i> &#10230; ` +
-        `<b>${escX(treater)}</b> <i>(${escX(practice(treater))})</i></p>` +
-        `<p>${escX(f.label)} &#183; severity: ${f.severity}</p>` +
-        (f.symptomConfirmed
-          ? `<p><b>&#10003; Patient reported the linking symptom</b>${f.linkingSymptom ? ` (&#8220;${escX(f.linkingSymptom)}&#8221;)` : ''}</p>`
-          : `<p>&#9675; Structural only — linking symptom not reported by the patient</p>`) +
-        `<p>Different prescribers, one root cause — visible only with the whole regimen in one place. <i>(Practice attribution is synthetic demo data.)</i></p>` +
-        `<p><i>Citation: ${escX(f.citation)}</i></p>`,
-      ),
-      code: { text: `Prescribing cascade: ${trigger} → ${treater}` },
+      code: { text: 'Prescribing cascade' },
       severity: f.severity,
       patient: ref(patient),
       identifiedDateTime: new Date().toISOString(),
       author: { display: 'Deprescribing review agent' },
-      // implicated[] in causal order: trigger drug first, treating drug second.
       implicated,
       detail: f.explanation ?? f.label,
-      reference: 'https://deprescribing.org/resources/deprescribing-guidelines-algorithms/',
+      reference: /^https?:\/\//.test(f.citation)
+        ? f.citation
+        : 'https://deprescribing.org/resources/deprescribing-guidelines-algorithms/',
+      // The rule's own citation, kept separate from the linking-symptom evidence
+      // below: one is why the rule exists, the other is what this patient said.
+      extension: [{ url: CITATION_URL, valueString: f.citation }],
       evidence: [{
         code: [{ text: f.symptomConfirmed
           ? `Patient reported the linking symptom: ${f.linkingSymptom}`
@@ -213,8 +319,9 @@ export async function writeCascades(
         action: { text: 'Review whether the trigger medication can be reduced or switched before continuing the treating medication' },
         date: new Date().toISOString(),
       }],
-    });
-  }));
+    })));
+  }
+  return out;
 }
 
 // ─── Goal (patient values) ───────────────────────────────────────────────────
@@ -223,22 +330,23 @@ export async function writeGoals(
   medplum: MedplumClient,
   patient: Patient,
   values: string[],
+  options: ReviewWriteOptions,
 ): Promise<Goal[]> {
-  return Promise.all(values.map((v) =>
-    medplum.createResource<Goal>({
+  const out: Goal[] = [];
+  for (const { item: v, identity } of inIdentityOrder(values, normalize)) {
+    out.push(await upsert<Goal>(medplum, options, 'goal', identity, (identifier) => ({
       resourceType: 'Goal',
+      identifier: [identifier],
+      meta: outputMeta(),
       lifecycleStatus: 'proposed',   // proposed: captured from the patient, not yet accepted into a care plan
-      text: xhtml(
-        `<p><b>&#8220;${escX(v)}&#8221;</b></p>` +
-        `<p>The patient's own stated priority, captured verbatim during the voice review ` +
-        `(<i>expressedBy = the patient</i>). This is a stated preference, not a prediction.</p>`,
-      ),
       subject: ref(patient),
       description: { text: v },
       // Patient-stated, not clinician-inferred. This distinction matters.
       expressedBy: ref(patient),
       note: [{ text: 'Patient-stated during voice medication review' }],
     })));
+  }
+  return out;
 }
 
 // ─── CarePlan + Task (the taper schedule) ───────────────────────────────────
@@ -250,34 +358,43 @@ export async function writeTaperPlan(
   steps: { week: number; dose: string; note: string }[],
   monitoring: string[],
   citation: string,
+  options: ReviewWriteOptions,
 ): Promise<{ carePlan: CarePlan; tasks: Task[] }> {
   const start = new Date();
 
-  const carePlan = await medplum.createResource<CarePlan>({
-    resourceType: 'CarePlan',
-    status: 'draft',            // draft: requires clinician sign-off before active
-    intent: 'proposal',
-    title: `${drug} taper`,
-    subject: ref(patient),
-    created: start.toISOString(),
-    description: `Stepwise reduction of ${drug} per published deprescribing algorithm. ${citation}`,
-    note: monitoring.map((m) => ({ text: `Monitor: ${m}` })),
-  });
+  const carePlan = await upsert<CarePlan>(medplum, options, 'taper-care-plan', `taper|${normalize(drug)}`,
+    (identifier) => ({
+      resourceType: 'CarePlan',
+      identifier: [identifier],
+      meta: outputMeta(),
+      status: 'draft',            // draft: requires clinician sign-off before active
+      intent: 'proposal',
+      title: `${drug} taper`,
+      subject: ref(patient),
+      created: start.toISOString(),
+      description: `Stepwise reduction of ${drug} per published deprescribing algorithm. ${citation}`,
+      note: monitoring.map((m) => ({ text: `Monitor: ${m}` })),
+    }));
 
-  const tasks = await Promise.all(steps.map((s) => {
+  const tasks: Task[] = [];
+  const ordered = [...steps].sort((a, b) => a.week - b.week);
+  for (const s of ordered) {
     const due = new Date(start);
     due.setDate(due.getDate() + s.week * 7);
-    return medplum.createResource<Task>({
-      resourceType: 'Task',
-      status: 'requested',
-      intent: 'proposal',
-      for: ref(patient),
-      basedOn: [ref(carePlan)],
-      description: `Week ${s.week}: ${drug} ${s.dose}`,
-      note: [{ text: s.note }],
-      restriction: { period: { start: due.toISOString() } },
-    });
-  }));
+    tasks.push(await upsert<Task>(medplum, options, 'taper-task',
+      `taper|${normalize(drug)}|week-${s.week}`, (identifier) => ({
+        resourceType: 'Task',
+        identifier: [identifier],
+        meta: outputMeta(),
+        status: 'requested',
+        intent: 'proposal',
+        for: ref(patient),
+        basedOn: [ref(carePlan)],
+        description: `Week ${s.week}: ${drug} ${s.dose}`,
+        note: [{ text: s.note }],
+        restriction: { period: { start: due.toISOString() } },
+      })));
+  }
 
   return { carePlan, tasks };
 }
@@ -293,18 +410,48 @@ export async function writeRedFlagTask(
   medplum: MedplumClient,
   patient: Patient,
   flags: string[],
+  options: ReviewWriteOptions,
 ): Promise<Task> {
-  return medplum.createResource<Task>({
-    resourceType: 'Task',
-    status: 'requested',
-    intent: 'order',
-    priority: 'urgent',
-    for: ref(patient),
-    code: { text: 'Red-flag escalation — voice medication review' },
-    description: `Patient reported during the call: ${flags.join('; ')}. Immediate clinician attention required.`,
-    authoredOn: new Date().toISOString(),
-    note: [{ text: 'Created automatically at first red-flag detection during the call (per-turn check).' }],
-  });
+  return upsert<Task>(medplum, options, 'red-flag-task', `red-flag|${subjectIdentity(patient)}`,
+    (identifier) => ({
+      resourceType: 'Task',
+      identifier: [identifier],
+      meta: outputMeta(),
+      status: 'requested',
+      intent: 'order',
+      priority: 'urgent',
+      for: ref(patient),
+      code: { text: 'Red-flag escalation — voice medication review' },
+      description: `Patient reported during the call: ${flags.join('; ')}. Immediate clinician attention required.`,
+      authoredOn: new Date().toISOString(),
+      note: [{ text: 'Created automatically at first red-flag detection during the call (per-turn check).' }],
+    }));
+}
+
+/** Evidence-bearing urgent Flag for a verifier-confirmed Sentinel class. */
+export async function writeRedFlagFlag(
+  medplum: MedplumClient,
+  patient: Patient,
+  reasons: string[],
+  detail: string,
+  options: ReviewWriteOptions,
+): Promise<Flag> {
+  const identity = `red-flag|${subjectIdentity(patient)}|${reasons.map(normalize).sort().join('+')}`;
+  return upsert<Flag>(medplum, options, 'red-flag-flag', identity, (identifier) => ({
+    resourceType: 'Flag',
+    identifier: [identifier],
+    meta: outputMeta(),
+    status: 'active',
+    category: [{ text: 'Urgent clinical review' }],
+    code: { text: reasons.length ? reasons.join('; ') : 'Red flag reported during medication review' },
+    subject: ref(patient),
+    period: { start: new Date().toISOString() },
+    author: { display: 'Deprescribing review agent (Sentinel)' },
+    extension: [{
+      url: 'https://ycxmedplum.dev/fhir/StructureDefinition/red-flag-audit',
+      valueString: detail,
+    }],
+  }));
 }
 
 // ─── Communication (message to prescriber) ──────────────────────────────────
@@ -313,69 +460,19 @@ export async function writePrescriberMessage(
   medplum: MedplumClient,
   patient: Patient,
   body: string,
+  options: ReviewWriteOptions,
 ): Promise<Communication> {
-  return medplum.createResource<Communication>({
-    resourceType: 'Communication',
-    status: 'preparation',      // preparation: drafted, awaiting human send
-    subject: ref(patient),
-    sent: undefined,
-    payload: [{ contentString: body }],
-    note: [{ text: 'Draft generated by deprescribing review agent. Requires clinician review before sending.' }],
-  });
-}
-
-// ─── Summary Composition — the "open one resource, see everything" view ─────
-
-/**
- * The console equivalent of the panel's above-the-fold: one Composition whose
- * narrative holds the stats, the cascade chain with practice tags, the
- * patient's stated priority, and the concerns strip. Open THIS in the console
- * during the demo instead of scrolling a resource list.
- */
-export async function writeSummary(
-  medplum: MedplumClient,
-  patient: Patient,
-  review: ReviewResult,
-): Promise<Composition> {
-  const cascades = review.findings.filter((f) => f.kind === 'cascade');
-  const chains = detectCascadeChains(cascades);
-  const high = review.findings.filter((f) => f.severity === 'high').length;
-
-  const chainHtml = chains.length
-    ? chains.map((c) =>
-        `<p><b>${c.map((d) => `${escX(d)} <i>(${escX(practice(d))})</i>`).join(' &#10230; ')}</b></p>`,
-      ).join('') +
-      `<p>Drugs prescribed to treat the side effects of other drugs — different practices, one root cause. <i>(Practice attribution synthetic.)</i></p>`
-    : '<p>No chained cascades detected.</p>';
-
-  return medplum.createResource<Composition>({
-    resourceType: 'Composition',
-    status: 'preliminary',
-    type: { coding: [{ system: 'http://loinc.org', code: '34133-9' }], text: 'Pre-visit medication review summary' },
-    subject: ref(patient),
-    date: new Date().toISOString(),
-    author: [{ display: 'Deprescribe review agent' }],
-    title: 'Pre-visit medication review — summary',
-    text: xhtml(
-      `<p><b>${review.meds.length} medications &#183; ${review.findings.length} findings (${high} high) &#183; ` +
-      `ACB ${review.acbScore} (threshold 3) &#183; ${cascades.length} cascades &#183; ` +
-      `${review.unresolvedCount} unresolved &#8594; clinician</b></p>` +
-      `<p><b>CHAINED PRESCRIBING CASCADE</b></p>` + chainHtml +
-      (review.patientGoals.length
-        ? `<p><b>WHAT THE PATIENT WOULD STOP</b></p>` +
-          review.patientGoals.map((g) => `<p><i>&#8220;${escX(g)}&#8221;</i></p>`).join('') +
-          `<p>Stated verbatim by the patient — a preference, not a prediction.</p>`
-        : '') +
-      (review.symptoms.length
-        ? `<p><b>PATIENT CONCERNS</b>: ${review.symptoms.map((s) => escX(s.symptom)).join(' &#183; ')}</p>`
-        : '') +
-      (review.redFlags.length
-        ? `<p><b>&#9888; RED FLAGS: ${escX(review.redFlags.join('; '))}</b></p>`
-        : '') +
-      `<p><i>Every finding carries a citation (Beers 2023 / STOPP v3 / named trials). ` +
-      `All resources are drafts pending clinician sign-off. Synthetic data only.</i></p>`,
-    ),
-  });
+  return upsert<Communication>(medplum, options, 'prescriber-communication',
+    `prescriber-message|${subjectIdentity(patient)}`, (identifier) => ({
+      resourceType: 'Communication',
+      identifier: [identifier],
+      meta: outputMeta(),
+      status: 'preparation',      // preparation: drafted, awaiting human send
+      subject: ref(patient),
+      sent: undefined,
+      payload: [{ contentString: body }],
+      note: [{ text: 'Draft generated by deprescribing review agent. Requires clinician review before sending.' }],
+    }));
 }
 
 /**
@@ -384,16 +481,9 @@ export async function writeSummary(
  */
 export function summarizeWritten(w: {
   meds: MedicationStatement[]; flags: Flag[]; risk: RiskAssessment | null;
-  cascades: DetectedIssue[]; goals: Goal[]; summary?: Composition;
+  cascades: DetectedIssue[]; goals: Goal[];
 }): { type: string; id: string; label: string; note?: string }[] {
   const rows: { type: string; id: string; label: string; note?: string }[] = [];
-  if (w.summary) {
-    rows.push({
-      type: 'Composition', id: w.summary.id!,
-      label: 'Pre-visit review summary — open this one in the console first',
-      note: 'Stats, chain with practice tags, patient priority, concerns — one screen',
-    });
-  }
   for (const m of w.meds) {
     rows.push({
       type: 'MedicationStatement', id: m.id!,
@@ -411,6 +501,7 @@ export function summarizeWritten(w: {
     rows.push({
       type: 'DetectedIssue', id: d.id!, label: d.detail ?? 'Prescribing cascade',
       note: [
+        d.extension?.find((e) => e.url.endsWith('/citation'))?.valueString,
         d.evidence?.[0]?.code?.[0]?.text,
         d.mitigation?.[0]?.action?.text ? `Mitigation: ${d.mitigation[0].action.text}` : undefined,
       ].filter(Boolean).join(' · '),
@@ -431,66 +522,29 @@ export function summarizeWritten(w: {
   return rows;
 }
 
-/** Convenience: write everything and return a summary for the demo UI. */
+/**
+ * Write everything for one review and return a summary for the demo UI.
+ *
+ * Sequential on purpose: the write order follows sorted canonical identities, so
+ * a `beforeWrite` ordinal always names the same write for the same input.
+ */
 export async function persistReview(
   medplum: MedplumClient,
   patient: Patient,
   review: ReviewResult,
+  options: ReviewWriteOptions,
 ) {
-  const meds = await writeMedications(medplum, patient, review.meds);
+  const meds = await writeMedications(medplum, patient, review.meds, options);
 
   const byIngredient = new Map<string, MedicationStatement>();
   review.meds.forEach((m, i) => {
     if (m.ingredient) byIngredient.set(m.ingredient, meds[i]);
   });
 
-  const [flags, risk, cascades, goals, summary] = await Promise.all([
-    writePimFlags(medplum, patient, review.findings),
-    writeAcbRisk(medplum, patient, review),
-    writeCascades(medplum, patient, review.findings, byIngredient),
-    writeGoals(medplum, patient, review.patientGoals),
-    writeSummary(medplum, patient, review),
-  ]);
+  const flags = await writePimFlags(medplum, patient, review.findings, options);
+  const risk = await writeAcbRisk(medplum, patient, review, options);
+  const cascades = await writeCascades(medplum, patient, review.findings, byIngredient, options);
+  const goals = await writeGoals(medplum, patient, review.patientGoals, options);
 
-  return { meds, flags, risk, cascades, goals, summary };
-}
-
-// ─── Flag (red flag escalation) ──────────────────────────────────────────────
-
-/**
- * A red flag is a different object from a PIM flag: it is not "this drug is a bad
- * idea for an 82 year old", it is "a human should look at this today". Same resource
- * type, different category, so a clinician can filter one from the other.
- *
- * The audit trail is the point. Whoever picks this up has to be able to answer "why
- * did a machine escalate this?" without replaying the call, so the verbatim utterance
- * and the detection path (lexical regex vs semantic recall plus LLM verifier) travel
- * with the resource. R4's Flag has no `note` element (unlike MedicationStatement), so
- * that audit text goes in an extension rather than being silently dropped.
- *
- * Nothing here pages anyone. It writes a record a clinician has to pick up.
- */
-export async function writeRedFlagFlag(
-  medplum: MedplumClient,
-  patient: Patient,
-  reasons: string[],
-  detail: string,
-): Promise<Flag> {
-  return medplum.createResource<Flag>({
-    resourceType: 'Flag',
-    status: 'active',
-    category: [{ text: 'Urgent clinical review' }],
-    code: {
-      text: reasons.length
-        ? reasons.join('; ')
-        : 'Red flag reported during medication review',
-    },
-    subject: ref(patient),
-    period: { start: new Date().toISOString() },
-    author: { display: 'Deprescribing review agent (Sentinel)' },
-    extension: [{
-      url: 'https://ycxmedplum.dev/fhir/StructureDefinition/red-flag-audit',
-      valueString: detail,
-    }],
-  });
+  return { meds, flags, risk, cascades, goals };
 }

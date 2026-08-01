@@ -1,5 +1,5 @@
 {
-  "at": "2026-07-31T19:46:59.250Z",
+  "at": "2026-08-01T15:45:00.000Z",
   "source": "canned-demo",
   "review": {
     "meds": [
@@ -13,7 +13,8 @@
         "confidence": "high",
         "rxcui": "135447",
         "ingredient": "donepezil",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "chart-confirmed"
       },
       {
         "spoken_as": "Oxybutynin. Five milligrams, three times a day",
@@ -25,7 +26,8 @@
         "confidence": "high",
         "rxcui": "32675",
         "ingredient": "oxybutynin",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "chart-confirmed"
       },
       {
         "spoken_as": "Amlodipine, ten milligrams, for my blood pressure",
@@ -37,7 +39,8 @@
         "confidence": "high",
         "rxcui": "17767",
         "ingredient": "amlodipine",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "chart-confirmed"
       },
       {
         "spoken_as": "A water pill. Furosemide I think. Twenty milligrams in the morning",
@@ -49,7 +52,8 @@
         "confidence": "medium",
         "rxcui": "4603",
         "ingredient": "furosemide",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "chart-confirmed"
       },
       {
         "spoken_as": "Allopurinol, a hundred milligrams",
@@ -61,7 +65,8 @@
         "confidence": "high",
         "rxcui": "519",
         "ingredient": "allopurinol",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "chart-confirmed"
       },
       {
         "spoken_as": "Lisinopril, ten milligrams. Also for the blood pressure",
@@ -73,7 +78,8 @@
         "confidence": "high",
         "rxcui": "29046",
         "ingredient": "lisinopril",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "chart-confirmed"
       },
       {
         "spoken_as": "Benzonatate, I take that when the cough gets bad",
@@ -85,7 +91,8 @@
         "confidence": "high",
         "rxcui": "18993",
         "ingredient": "benzonatate",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "chart-confirmed"
       },
       {
         "spoken_as": "Lorazepam. One milligram at bedtime",
@@ -97,7 +104,8 @@
         "confidence": "high",
         "rxcui": "6470",
         "ingredient": "lorazepam",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "chart-confirmed"
       },
       {
         "spoken_as": "I take a Benadryl too, if the lorazepam isn't doing it",
@@ -109,7 +117,8 @@
         "confidence": "high",
         "rxcui": "3498",
         "ingredient": "diphenhydramine",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "patient-reported"
       },
       {
         "spoken_as": "senna, for my bowels, I take that every day now",
@@ -121,7 +130,8 @@
         "confidence": "high",
         "rxcui": "36387",
         "ingredient": "sennosides, usp",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "patient-reported"
       },
       {
         "spoken_as": "omeprazole. Twenty milligrams",
@@ -133,7 +143,8 @@
         "confidence": "high",
         "rxcui": "7646",
         "ingredient": "omeprazole",
-        "unresolved": false
+        "unresolved": false,
+        "provenance": "chart-confirmed"
       }
     ],
     "findings": [
@@ -147,7 +158,7 @@
         "label": "Cholinesterase inhibitor → antimuscarinic cascade",
         "citation": "Gill et al., Arch Intern Med 2005; widely cited as the archetypal prescribing cascade",
         "symptomConfirmed": true,
-        "linkingSymptom": "urgency"
+        "linkingSymptom": "urinary"
       },
       {
         "kind": "cascade",
@@ -350,12 +361,246 @@
       }
     ]
   },
-  "patientId": "966b3619-73b2-4895-b75b-f0ad287119af",
+  "patientDisplay": "Margaret Okonkwo, 83",
+  "chart": {
+    "medications": [
+      {
+        "display": "donepezil 10 mg once daily",
+        "ingredient": "donepezil",
+        "rxcui": "135447",
+        "strength": "10 mg",
+        "frequency": "once daily",
+        "sourceDisplay": "Neurology — Dr. Elena Park",
+        "confirmation": "taking-as-documented"
+      },
+      {
+        "display": "oxybutynin 5 mg three times daily",
+        "ingredient": "oxybutynin",
+        "rxcui": "32675",
+        "strength": "5 mg",
+        "frequency": "three times daily",
+        "sourceDisplay": "Urology — Dr. Samuel Reed",
+        "confirmation": "taking-as-documented"
+      },
+      {
+        "display": "amlodipine 10 mg once daily",
+        "ingredient": "amlodipine",
+        "rxcui": "17767",
+        "strength": "10 mg",
+        "frequency": "once daily",
+        "sourceDisplay": "Cardiology — Dr. Priya Shah",
+        "confirmation": "taking-as-documented"
+      },
+      {
+        "display": "furosemide 20 mg every morning",
+        "ingredient": "furosemide",
+        "rxcui": "4603",
+        "strength": "20 mg",
+        "frequency": "every morning",
+        "sourceDisplay": "Primary care — Dr. Jordan Lee",
+        "confirmation": "taking-as-documented"
+      },
+      {
+        "display": "allopurinol 100 mg once daily",
+        "ingredient": "allopurinol",
+        "rxcui": "519",
+        "strength": "100 mg",
+        "frequency": "once daily",
+        "sourceDisplay": "Rheumatology — Dr. Sofia Martinez",
+        "confirmation": "taking-as-documented"
+      },
+      {
+        "display": "lisinopril 10 mg once daily",
+        "ingredient": "lisinopril",
+        "rxcui": "29046",
+        "strength": "10 mg",
+        "frequency": "once daily",
+        "sourceDisplay": "Cardiology — Dr. Priya Shah",
+        "confirmation": "taking-as-documented"
+      },
+      {
+        "display": "benzonatate as needed for cough",
+        "ingredient": "benzonatate",
+        "rxcui": "18993",
+        "strength": null,
+        "frequency": "as needed for cough",
+        "sourceDisplay": "Primary care — Dr. Jordan Lee",
+        "confirmation": "taking-as-documented"
+      },
+      {
+        "display": "lorazepam 1 mg at bedtime",
+        "ingredient": "lorazepam",
+        "rxcui": "6470",
+        "strength": "1 mg",
+        "frequency": "at bedtime",
+        "sourceDisplay": "Primary care — Dr. Jordan Lee",
+        "confirmation": "taking-as-documented"
+      },
+      {
+        "display": "omeprazole 20 mg once daily",
+        "ingredient": "omeprazole",
+        "rxcui": "7646",
+        "strength": "20 mg",
+        "frequency": "once daily",
+        "sourceDisplay": null,
+        "confirmation": "taking-as-documented"
+      }
+    ],
+    "conditions": [
+      "Alzheimer disease, mild",
+      "Essential hypertension",
+      "Gout",
+      "Urge urinary incontinence",
+      "Insomnia"
+    ]
+  },
+  "gaps": [
+    {
+      "kind": "patient-only",
+      "display": "diphenhydramine (Benadryl)",
+      "note": "I take a Benadryl too, if the lorazepam isn't doing it"
+    },
+    {
+      "kind": "patient-only",
+      "display": "senna",
+      "note": "And senna, for my bowels, I take that every day now"
+    },
+    {
+      "kind": "missing-indication",
+      "display": "omeprazole 20 mg once daily",
+      "note": "recorded source: not recorded in the chart"
+    }
+  ],
+  "concerns": [
+    {
+      "medicationName": "lorazepam",
+      "patientWords": "The sleeping pill. I don't think it even works anymore, and I hate feeling like this in the mornings. I just want to feel clear again.",
+      "intent": "discuss-stopping"
+    }
+  ],
   "written": {
     "meds": 11,
     "flags": 6,
     "cascades": 4,
     "goals": 1,
-    "risk": true
+    "risk": true,
+    "task": false,
+    "resources": [
+      {
+        "type": "MedicationStatement",
+        "label": "donepezil",
+        "note": "Listed in the chart and confirmed by the patient on this call."
+      },
+      {
+        "type": "MedicationStatement",
+        "label": "oxybutynin",
+        "note": "Listed in the chart and confirmed by the patient on this call."
+      },
+      {
+        "type": "MedicationStatement",
+        "label": "amlodipine",
+        "note": "Listed in the chart and confirmed by the patient on this call."
+      },
+      {
+        "type": "MedicationStatement",
+        "label": "furosemide",
+        "note": "Listed in the chart and confirmed by the patient on this call."
+      },
+      {
+        "type": "MedicationStatement",
+        "label": "allopurinol",
+        "note": "Listed in the chart and confirmed by the patient on this call."
+      },
+      {
+        "type": "MedicationStatement",
+        "label": "lisinopril",
+        "note": "Listed in the chart and confirmed by the patient on this call."
+      },
+      {
+        "type": "MedicationStatement",
+        "label": "benzonatate",
+        "note": "Listed in the chart and confirmed by the patient on this call."
+      },
+      {
+        "type": "MedicationStatement",
+        "label": "lorazepam",
+        "note": "Listed in the chart and confirmed by the patient on this call."
+      },
+      {
+        "type": "MedicationStatement",
+        "label": "diphenhydramine",
+        "note": "Patient said: \"I take a Benadryl too, if the lorazepam isn't doing it\" · Extraction confidence: high · Reported as over-the-counter / supplement"
+      },
+      {
+        "type": "MedicationStatement",
+        "label": "sennosides, usp",
+        "note": "Patient said: \"senna, for my bowels, I take that every day now\" · Extraction confidence: high · Reported as over-the-counter / supplement"
+      },
+      {
+        "type": "MedicationStatement",
+        "label": "omeprazole",
+        "note": "Listed in the chart and confirmed by the patient on this call."
+      },
+      {
+        "type": "Flag",
+        "label": "Two or more sedative-hypnotics (2 agents)",
+        "note": "STOPP/START v3 — duplicate drug class prescribing; additive CNS depression"
+      },
+      {
+        "type": "Flag",
+        "label": "Two or more anticholinergic agents (2 agents)",
+        "note": "STOPP/START v3 — additive anticholinergic burden"
+      },
+      {
+        "type": "Flag",
+        "label": "Benzodiazepine in older adult",
+        "note": "AGS Beers 2023 — avoid benzodiazepines for insomnia, agitation, or delirium"
+      },
+      {
+        "type": "Flag",
+        "label": "First-generation antihistamine",
+        "note": "AGS Beers 2023 — avoid first-generation antihistamines"
+      },
+      {
+        "type": "Flag",
+        "label": "Antimuscarinic for urinary incontinence",
+        "note": "AGS Beers 2023 — use with caution; avoid oral oxybutynin in dementia"
+      },
+      {
+        "type": "Flag",
+        "label": "Proton pump inhibitor beyond 8 weeks without clear indication",
+        "note": "AGS Beers 2023 — avoid scheduled use > 8 weeks without justification"
+      },
+      {
+        "type": "DetectedIssue",
+        "label": "Cholinesterase inhibitor → antimuscarinic cascade",
+        "note": "Gill et al., Arch Intern Med 2005; widely cited as the archetypal prescribing cascade · Patient reported the linking symptom: urinary · Mitigation: Review whether the trigger medication can be reduced or switched before continuing the treating medication"
+      },
+      {
+        "type": "DetectedIssue",
+        "label": "Dihydropyridine calcium channel blocker → diuretic cascade",
+        "note": "Savage et al., JAMA Intern Med 2020 — CCB-induced oedema and diuretic prescribing cascade · Patient reported the linking symptom: swelling · Mitigation: Review whether the trigger medication can be reduced or switched before continuing the treating medication"
+      },
+      {
+        "type": "DetectedIssue",
+        "label": "Diuretic → gout therapy cascade",
+        "note": "Choi et al., BMJ 2012 — diuretic use and risk of incident gout · Patient reported the linking symptom: gout · Mitigation: Review whether the trigger medication can be reduced or switched before continuing the treating medication"
+      },
+      {
+        "type": "DetectedIssue",
+        "label": "ACE inhibitor → antitussive cascade",
+        "note": "Dicpinigaitis, Chest 2006 — ACE inhibitor-induced cough · Patient reported the linking symptom: cough · Mitigation: Review whether the trigger medication can be reduced or switched before continuing the treating medication"
+      },
+      {
+        "type": "RiskAssessment",
+        "label": "Cumulative anticholinergic burden",
+        "note": "ACB score 8 from: oxybutynin (3), diphenhydramine (3), furosemide (1), lorazepam (1)"
+      },
+      {
+        "type": "Goal",
+        "label": "The sleeping pill. I don't think it even works anymore, and I hate feeling like this in the mornings. I just want to feel clear again.",
+        "note": "expressedBy = the patient"
+      }
+    ]
   }
 }
