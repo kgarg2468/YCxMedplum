@@ -1,171 +1,84 @@
-# Deprescribe — voice-first medication review on Medplum
+# YCxMedplum — patient-centered cross-prescriber medication review
 
-Every AI health company is building tools that **add**: more diagnosis, more
-research, more documentation. The highest-return intervention in geriatric
-medicine is **subtraction**. Medication review is a funded category — CMS
-mandates it, analytics vendors fire 40M+ recommendations a year at pharmacist
-call centers — yet 18.8% of seniors are *still* on an inappropriate med, because
-the paid version is a compliance checkbox. The conversation that actually finds
-a prescribing cascade is the part no one's system does. That's what we built.
+YCxMedplum gives a synthetic patient one conversation about what they take, what
+has changed, what concerns them, and what they want their care team to address.
+Before an outbound call, the server loads the current Medplum chart and gives Vapi
+a compact prefill. The assistant confirms known medications and asks about gaps
+instead of starting another full inventory.
 
-## The problem
+After the call, patient-reported information is reconciled with chart history.
+RxNorm normalizes newly reported products, deterministic rules identify potential
+medication concerns, and one evidence-linked coordination view is prepared for
+the clinicians already authorized to participate in the patient's care.
 
-**42% of US adults over 65 take five or more daily medications**, and 18.8% are on
-at least one potentially inappropriate medication (2023 ambulatory cohort,
-n=81,295). A structured deprescribing conversation takes thirty minutes and isn't
-reimbursed — so it rarely happens, even though the STOPPFrail trial measured a
-**−2.6 medications per patient and lower drug costs, with no detected harm** in a randomized trial of doing it (STOPPFrail RCT, Curtin 2020, JAGS; see docs/EVIDENCE.bib).
+The primary live-demo instructions are in
+[the cross-prescriber operator runbook](docs/DEMO_CROSS_PRESCRIBER.md).
 
-The most invisible version of the problem is the **prescribing cascade**: a drug
-prescribed to treat the side effect of another drug. Our demo patient's chart
-contains a real, literature-documented chain —
+## What the demo proves
 
-> amlodipine (blood pressure) → causes ankle swelling → **furosemide** added →
-> raises uric acid → causes gout → **allopurinol** added
+- Nine active prescription records from five fictional practitioners are loaded
+  from Medplum before the call.
+- A simple confirmation keeps chart medications in review without asking the
+  patient to repeat every name.
+- Stopped medications, changed use, unknown indications, newly reported products,
+  symptoms, and patient priorities remain visibly distinct.
+- The deterministic review presents possible concerns with rule-specific
+  citations. Patient-reported symptoms add supporting evidence; they do not prove
+  causation or alter a rule's curated clinical severity.
+- FHIR output is associated with the synthetic patient linked to the call, and a
+  retry reuses stable output identities.
+- Review-generated medication records are excluded from the next chart prefill.
 
-Three drugs; one root cause. Each prescriber acted reasonably; nobody ever asked
-*why each drug was started*. You can only find a cascade by having that
-conversation — which is exactly what makes it agent-shaped work.
+## Architecture
 
-## What this does
+| Stage | Responsibility |
+|---|---|
+| Medplum chart load | Current chart facts, conditions, and recorded sources |
+| Vapi call | Outbound call orchestration and safe chart prefill |
+| Deepgram through Vapi | Nova-3 transcription and Aura speech |
+| Structured extraction and RxNorm | Patient statements and normalized medication identity |
+| Deterministic review | Citation-backed potential concerns and cascade patterns |
+| Coordination panel and FHIR | Reviewable evidence for the authorized care team |
 
-A voice agent phones the patient before their visit and goes through their pill
-bag with them — names, doses, and critically, *"what do you take that one for?"*,
-where "I don't know" is a recorded answer, not a failure. Then:
+The system generates review prompts, not diagnoses or medication orders. It never
+instructs a patient to start, stop, or change a medication or dose.
 
-```
-  voice call (Vapi · Deepgram STT/TTS · Claude Haiku)
-        │  transcript
-        ▼
-  llm/extract.ts ────────────► SpokenMed[]      LLM, schema-constrained,
-        │                                        allowed to answer "I don't know"
-        ▼
-  rxnav.ts ──────────────────► ResolvedMed[]    NIH RxNorm → canonical ingredient
-        │                                        unresolved ≠ guessed
-        ▼
-  engine/detect.ts ──────────► Finding[]        ★ ZERO LLM CALLS
-        │                                        PIMs · cascades · anticholinergic
-        │                                        burden · duplicates — every finding
-        │                                        carries a real citation
-        ├──► llm/agents.ts     explain / taper / challenger
-        ▼
-  fhir/writers.ts ───────────► Medplum          MedicationStatement, Flag,
-                                                RiskAssessment, DetectedIssue,
-                                                Goal, CarePlan+Task, Communication
-```
+## Offline preview
 
-Results render on a live review panel (`/review`) and land in Medplum as draft
-FHIR resources for a clinician to approve.
-
-## The architectural rule
-
-Three kinds of work, three owners:
-
-| Stage | Who does it | Why |
-|---|---|---|
-| Messy speech → structured data | LLM | This is what LLMs are for |
-| **Is this a PIM? Is this a cascade?** | **Deterministic code** | Never let the model decide this |
-| Structured findings → human prose | LLM | Explanation, taper, prescriber note |
-
-`src/engine/detect.ts` contains **no LLM calls**. Detection is a hand-curated,
-citation-backed table lookup (AGS Beers 2023, STOPP/START v3, the ACB scale,
-published cascade literature), so the system **cannot hallucinate a drug
-interaction** — and every recommendation shows the clinician its basis. The full
-reasoning behind every design decision is in
-[docs/DECISIONS.md](docs/DECISIONS.md).
-
-## Status: working end to end
-
-**☎️ Try it — call the live demo line: +1 (603) 457-8331** and role-play a patient
-(name a few medications, mumble one on purpose, answer "I don't know" to something).
-The agent is live 24/7; the pipeline runs when the reviewing server is up.
-
-Tested over a **real phone call**: telephony audio garbled drug names
-("Jonipezil", "Burosemide") and the pipeline still resolved them, confirmed the
-cascade chain from the patient's own words, and wrote the FHIR resources to
-Medplum ~15 seconds after hangup. Engine output on the reference case:
-
-```
-ACB = 8  [oxybutynin:3, diphenhydramine:3, furosemide:1, lorazepam:1]
-
-12 findings
-  [high    ] cascade         donepezil -> oxybutynin CONFIRMED
-  [high    ] cascade         amlodipine -> furosemide CONFIRMED
-  [high    ] duplicate       lorazepam -> diphenhydramine
-  [high    ] pim             lorazepam
-  [moderate] cascade         furosemide -> allopurinol CONFIRMED
-  [moderate] cascade         lisinopril -> benzonatate CONFIRMED
-  [moderate] no-indication   omeprazole
-  ...
-
-CHAINS: amlodipine -> furosemide -> allopurinol
-```
-
-## Quickstart
-
-No keys needed to see it work:
+The approved canned snapshot exercises the same core coordination story without
+Medplum, Vapi, Anthropic, or RxNav access:
 
 ```bash
-npm install
-npm test                  # deterministic engine, offline — findings above
-npm run panel:canned      # load the demo dataset for the panel
-npm run server            # then open http://localhost:3000/review
+npm run panel:canned
+npm run server
 ```
 
-With credentials (`cp .env.example .env` — see [docs/SETUP.md](docs/SETUP.md)):
+Open `http://127.0.0.1:3001/review`. The panel labels this mode as canned.
 
-```bash
-npm run demo:fast         # live extraction + RxNorm resolution, no FHIR writes
-npm run seed              # create the synthetic demo patient in Medplum
-npm run demo              # full pipeline including Medplum writes
-npm run vapi:setup <url>  # create/update the voice assistant from code
-```
+## FHIR surface
 
-## The FHIR mapping
+The source chart uses `Patient`, `Practitioner`, `Condition`, and
+`MedicationRequest`. A normal live review may write `MedicationStatement`, `Flag`,
+`RiskAssessment`, `DetectedIssue`, and `Goal`; an urgent red-flag path may also
+write `Task`. Review resources remain preliminary, draft, proposed, or preparation
+artifacts for clinician review.
 
-| Conversation output | Resource | Note |
-|---|---|---|
-| Current regimen | `MedicationStatement` | What she's *actually* taking; unresolved meds keep her verbatim words |
-| PIM hits | `Flag` | One per Beers/STOPP violation, citation in an extension |
-| Anticholinergic burden | `RiskAssessment` | Computed, auditable, contributors listed |
-| **Prescribing cascade** | **`DetectedIssue`** | `implicated[]` in **causal order**; `evidence` records whether the patient reported the linking symptom |
-| "I want to feel clear again" | `Goal` | `expressedBy` = the patient, not the clinician |
-| Taper schedule | `CarePlan` (draft) + `Task` | Real scheduled activities with due dates |
-| Prescriber note | `Communication` (preparation) | Drafted, never auto-sent |
+## Privacy and scope
 
-Statuses are deliberate: `preliminary`, `draft`, `preparation`. Nothing is
-presented as final without a human — that is both honest and the regulatory
-posture.
+The demo uses synthetic data only. The coordination view is for clinicians already
+authorized to participate in the patient's care. The MVP does not grant
+cross-practice access or claim that external EHRs are synchronized.
 
-## Safety and scope
+HHS states that treatment-related provider disclosures may be permitted without
+patient authorization, but reasonable safeguards still apply. Production
+deployment still requires verified care relationships, role-based access, audit
+logging, applicable agreements, and legal/compliance review. See the
+[HHS treatment-disclosures guidance](https://www.hhs.gov/hipaa/for-professionals/faq/treatment-payment-and-health-care-operations-disclosures/index.html).
 
-- **Synthetic data only.** The demo patient is fictional and tagged
-  `synthetic-demo`. No real PHI.
-- **Clinician-in-the-loop, always.** The agent gathers and proposes; it never
-  directs. It is explicitly instructed never to tell a patient to stop, start, or
-  change a dose.
-- **Designed against FDA's Non-Device CDS criteria** (21st Century Cures
-  §520(o)(1)(E)): clinician-facing, ranked options with a visible citation on
-  every finding, nothing time-critical. A patient-facing autonomous taper would
-  be a regulated device — this isn't that.
-- **Red flags** (fall with head injury, syncope, chest pain, acute confusion,
-  suicidality) halt the review and escalate, checked on every turn.
+## Documentation
 
-## Roadmap
-
-- Rule engine as a **Medplum Bot** triggered on `MedicationStatement` creation —
-  the platform-native design; the engine is already a pure function
-- **Cost & coverage surface** — every stopped drug has a price; deprescribing is
-  the rare intervention that *saves* money (eligibility via Stedi)
-- Grow the knowledge tables toward full STOPP/START coverage with pharmacist
-  review
-- Formal extraction benchmark against real-world med-rec conversations
-- Prescription-history ingestion so cascades can be suspected from records even
-  before the conversation
-
-## Docs
-
-- [TEAM.md](TEAM.md) — quick orientation and where to plug in
-- [docs/DECISIONS.md](docs/DECISIONS.md) — every design decision and why
-- [docs/SETUP.md](docs/SETUP.md) — Medplum + voice platform credentials
-- [docs/DEMO.md](docs/DEMO.md) — presentation scripts
+- [Cross-prescriber operator runbook](docs/DEMO_CROSS_PRESCRIBER.md)
+- [Presentation guide](docs/DEMO.md)
+- [Setup guide](docs/SETUP.md)
+- [Rehearsal report](docs/reports/cross-prescriber-rehearsal.md)
+- [Design decisions](docs/DECISIONS.md)

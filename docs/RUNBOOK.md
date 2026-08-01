@@ -1,51 +1,52 @@
-# RUNBOOK — every command, no assistant needed
+# Operator runbook
 
-All commands run from the project root.
+The canonical runbook is
+[DEMO_CROSS_PRESCRIBER.md](DEMO_CROSS_PRESCRIBER.md). Use it from start to finish
+for setup, the authenticated chart-prefilled outbound call, patient role-play,
+expected output, Medplum inspection, fallback, and sponsor language.
 
-## Daily startup (venue)
+## Live command sequence
 
-```bash
-npm run server          # terminal 1, leave running — panel + call poller (no tunnel needed)
-npm run panel:canned    # terminal 2 — full demo dataset onto the panel
-```
-
-Panel: http://localhost:3000/review  ·  Demo line: +1 (603) 457-8331
-Calls process automatically ~10s after hangup and repaint the panel.
-
-## Verification (once, on venue wifi)
+From the repository root, seed once and leave the server running:
 
 ```bash
-npm test              # engine, offline — expect ACB 8, 12 findings, the chain
-npm run demo:fast     # tests Anthropic + RxNav connectivity
-npm run seed          # tests Medplum auth
-npm run demo          # full pipeline incl. FHIR writes; open the printed Patient/<id>
-```
-
-## During the presentation
-
-```bash
-npm run panel:canned  # PANIC BUTTON — full dataset back in ~3s, zero network
-```
-
-## Voice assistant (only after changing prompt.ts / createAssistant.ts)
-
-```bash
-npm run vapi:setup
-```
-
-## Stop / restart
-
-```bash
-pkill -f "src/server.ts"
+npm run seed
 npm run server
 ```
 
-## Fresh machine
+The server exposes the authenticated webhook on port 3000 and the review/start
+surface on `127.0.0.1:3001`. In another terminal, tunnel only the webhook port:
 
 ```bash
-git clone https://github.com/sanskritifarswal/deprescribe.git && cd deprescribe
-npm install
-cp .env.example .env   # paste keys — .env is NOT in git; move it between laptops yourself
+npx localtunnel --port 3000
 ```
 
-Keys: ANTHROPIC_API_KEY · MEDPLUM_CLIENT_ID/SECRET · VAPI_API_KEY · DEEPGRAM_API_KEY
+After placing the temporary tunnel origin in `PUBLIC_VAPI_ORIGIN`, update the Vapi
+assistant and start the outbound call:
+
+```bash
+npm run vapi:setup -- "$PUBLIC_VAPI_ORIGIN/vapi"
+npm run demo:call
+```
+
+Open `http://127.0.0.1:3001/review`. After the call, verify the authoritative chart
+input counts:
+
+```bash
+npm run demo:inspect
+```
+
+## Offline fallback
+
+After stopping the live listeners and tunnel with their terminal interrupts, use:
+
+```bash
+npm run panel:canned
+npm run server
+```
+
+Open `http://127.0.0.1:3001/review` and identify the displayed data as canned.
+
+The system generates review prompts, not diagnoses or medication orders. Deepgram
+Nova-3 and Aura are used through Vapi, and no review/start route is exposed by the
+public tunnel.
