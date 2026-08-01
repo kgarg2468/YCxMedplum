@@ -106,7 +106,7 @@ export async function writeAcbRisk(
 
   return medplum.createResource<RiskAssessment>({
     resourceType: 'RiskAssessment',
-    status: 'final',
+    status: 'preliminary',      // preliminary: computed score awaits clinician confirmation
     subject: ref(patient),
     occurrenceDateTime: new Date().toISOString(),
     method: { text: 'Anticholinergic Cognitive Burden (ACB) scale' },
@@ -175,7 +175,7 @@ export async function writeGoals(
   return Promise.all(values.map((v) =>
     medplum.createResource<Goal>({
       resourceType: 'Goal',
-      lifecycleStatus: 'active',
+      lifecycleStatus: 'proposed',   // proposed: captured from the patient, not yet accepted into a care plan
       subject: ref(patient),
       description: { text: v },
       // Patient-stated, not clinician-inferred. This distinction matters.
@@ -223,6 +223,31 @@ export async function writeTaperPlan(
   }));
 
   return { carePlan, tasks };
+}
+
+// ─── Task (red-flag escalation) ─────────────────────────────────────────────
+
+/**
+ * Urgent Task created the moment a red flag is detected (per-turn, not end-of-call).
+ * This is the escalation the review panel claims — a real FHIR artifact a clinician
+ * queue can pick up, not a console line.
+ */
+export async function writeRedFlagTask(
+  medplum: MedplumClient,
+  patient: Patient,
+  flags: string[],
+): Promise<Task> {
+  return medplum.createResource<Task>({
+    resourceType: 'Task',
+    status: 'requested',
+    intent: 'order',
+    priority: 'urgent',
+    for: ref(patient),
+    code: { text: 'Red-flag escalation — voice medication review' },
+    description: `Patient reported during the call: ${flags.join('; ')}. Immediate clinician attention required.`,
+    authoredOn: new Date().toISOString(),
+    note: [{ text: 'Created automatically at first red-flag detection during the call (per-turn check).' }],
+  });
 }
 
 // ─── Communication (message to prescriber) ──────────────────────────────────
