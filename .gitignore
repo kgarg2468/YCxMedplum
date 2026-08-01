@@ -5,11 +5,6 @@ node_modules/
 medplum-link
 out/
 graphify-out/
+.playwright-mcp/
 .rocketride/
-
-# One-off Moss probes. They exist to PROVE that Moss's `score` is a degenerate
-# reciprocal-rank artefact, so they are the only files in the tree that read
-# `.score`. They are not part of the build (outside tsconfig include) and must not
-# be committed: the cardinal rule is that a `.score` read outside a comment is a
-# defect, and a reviewer greps for exactly that.
 research/moss-probes/

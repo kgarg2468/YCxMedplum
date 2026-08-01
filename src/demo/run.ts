@@ -21,12 +21,16 @@ import { explainFinding, buildTaper, challenge } from '../llm/agents.js';
 import { persistReview, writeTaperPlan, writePrescriberMessage, summarizeWritten } from '../fhir/writers.js';
 import { checkRedFlags } from '../voice/prompt.js';
 import type { ReviewSnapshot } from '../ui/panel.js';
+import type { ReviewWriteOptions } from '../context/types.js';
+
+/** The canned run is not a phone call, so it gets a fixed, stable run id. */
+const OFFLINE_RUN_ID = 'offline-demo';
 
 /** Snapshot for the review panel (src/ui/panel.ts, served at /review). */
 function saveSnapshot(snap: ReviewSnapshot) {
   mkdirSync('out', { recursive: true });
   writeFileSync('out/last-review.json', JSON.stringify(snap, null, 2));
-  console.log('\n(review panel snapshot → out/last-review.json — view at http://localhost:3000/review)');
+  console.log('\n(review panel snapshot → out/last-review.json — view at http://127.0.0.1:3001/review)');
 }
 
 const noFhir = process.argv.includes('--no-fhir');
@@ -38,7 +42,9 @@ function hr(label: string) {
 
 async function main() {
   hr('1. EXTRACT');
-  const extraction = await extractWithRetry(DEMO_TRANSCRIPT);
+  // Canned run: no chart behind it, so no aliases were presented on the "call"
+  // and chart_medication_confirmations comes back empty.
+  const extraction = await extractWithRetry(DEMO_TRANSCRIPT, { chartAliases: [] });
   console.log(`${extraction.medications.length} medications, ${extraction.symptoms.length} symptoms`);
   for (const m of extraction.medications) {
     console.log(`  · ${m.name_guess ?? '(unidentified)'}  ← "${m.spoken_as}"  [${m.confidence}]` +
@@ -117,7 +123,7 @@ async function main() {
     review,
     chains,
     objection,
-    patientLabel: patientLabel(),
+    patientDisplay: patientLabel(),
     taper: !taper.error && taper.steps?.length ? { drug: 'lorazepam', steps: taper.steps } : null,
   };
 
@@ -134,7 +140,10 @@ async function main() {
     process.env.MEDPLUM_CLIENT_SECRET!,
   );
   const { patient } = await seedDemoPatient(medplum);
-  const written = await persistReview(medplum, patient, review);
+  // Stable offline run id: re-running the canned demo updates the same output
+  // resources instead of piling up duplicates in the demo project.
+  const writeOptions: ReviewWriteOptions = { runId: OFFLINE_RUN_ID };
+  const written = await persistReview(medplum, patient, review, writeOptions);
 
   console.log(`  MedicationStatement × ${written.meds.length}`);
   console.log(`  Flag × ${written.flags.length}`);
@@ -145,7 +154,7 @@ async function main() {
   if (!taper.error && taper.steps?.length) {
     const { carePlan, tasks } = await writeTaperPlan(
       medplum, patient, 'lorazepam', taper.steps,
-      taper.monitoring ?? [], taper.citation ?? '');
+      taper.monitoring ?? [], taper.citation ?? '', writeOptions);
     console.log(`  CarePlan ${carePlan.id} + Task × ${tasks.length}`);
   }
 
@@ -155,16 +164,16 @@ async function main() {
     `${chains.length} chained prescribing cascade(s).\n\n` +
     review.findings.slice(0, 5).map((f) => `• ${f.label} — ${f.citation}`).join('\n') +
     `\n\nPatient's stated priority: ${review.patientGoals[0] ?? 'not recorded'}\n\n` +
-    `Reviewer objection to consider: ${objection}`);
+    `Reviewer objection to consider: ${objection}`, writeOptions);
   console.log('  Communication: drafted (status=preparation, not sent)');
 
-  snapshot.patientId = patient.id;
-  snapshot.patientLabel = patientLabel(patient);
+  snapshot.patientDisplay = patientLabel(patient);
   snapshot.written = {
     meds: written.meds.length, flags: written.flags.length,
     cascades: written.cascades.length, goals: written.goals.length,
     risk: Boolean(written.risk),
-    resources: summarizeWritten(written),
+    // Presentation-only: the generated ids stay in Medplum, off the panel.
+    resources: summarizeWritten(written).map(({ type, label, note }) => ({ type, label, note })),
   };
   saveSnapshot(snapshot);
 
