@@ -91,7 +91,8 @@ Hang up mid-interview, deliberately:
 > inappropriate medication. Medicare Advantage plans are graded on exactly this, and
 > the STOPPFrail trial showed a thirty-three-to-one return. A structured medication
 > review takes thirty minutes and isn't reimbursed — which is why it doesn't happen,
-> and why it should be an agent. Thank you.
+> and why it should be an agent — one that enhances the clinician instead of adding
+> to their workload. Thank you.
 
 ### If squeezed to 2:00
 Skip the call insert (use the WITHOUT line) and skip the 2:25 taper beat. Never cut
@@ -123,6 +124,29 @@ If a take dies, restart it. Do not ship a take where the chain was rushed.
 
 ---
 
+## Judging criteria — say their words back
+
+Official criteria, and where your pitch hits each. Weave the **bold phrases** in —
+judges score against rubric language.
+
+**1. Potential impact** — *"intelligent, standards compliant, automated, even voice
+enabled, enhancing clinicians rather than adding to their workload"*:
+- **Standards compliant** → seven FHIR resource types, `DetectedIssue` used per spec,
+  draft/preliminary statuses (say "real FHIR, standards-compliant" at the console flip)
+- **Voice enabled** → the live call / Deepgram end-to-end
+- **Automated** → the whole pipeline runs unattended from hangup to chart
+- **Enhancing clinicians, not adding workload** → the close (now word-for-word), plus:
+  the 30-minute unreimbursed review arrives *done*, as drafts to approve
+- **Patient care impact** → 18.8% on a PIM, ACB→falls/cognition, STOPPFrail 33:1
+
+**2. Effective use of provided technologies** (*"Deepgram, Medplum, moss.dev, and/or
+Stedi"* — "and/or": two used deeply beats four used thinly, say that with confidence):
+- **Medplum** — system of record; the FHIR mapping IS the differentiator
+- **Deepgram** — 100% of speech: Nova-3 in, Aura out, on our own Deepgram account
+- **moss.dev** — named next step (see new Q&A below): semantic symptom matching
+  *under* the deterministic layer
+- **Stedi** — named next step: eligibility/coverage = the cost surface
+
 ## Numbers for the pitch
 
 | Claim | Figure | Source |
@@ -147,14 +171,23 @@ usability threshold for an 82-year-old.
 
 ---
 
-## Judge Q&A — rehearse these four
+## Judge Q&A — rehearse these
 
 **"The prompt asked for cost transparency and data visualization. Where are those?"**
 > We deliberately went deep on one vertical instead of shallow on eight. The prompt's
 > through-line is doing the work before the visit — this is the highest-dollar version
-> of that, and it's the one nobody's built. Cost is a natural next surface: every
-> medication we stop has a price, and deprescribing is the only intervention here that
-> *saves* money rather than spending it.
+> of that, and it's the one nobody's built. Cost is the natural next surface, and
+> Stedi is exactly how we'd build it: every medication we stop has a price, an
+> eligibility check tells you what her plan covers, and deprescribing is the only
+> intervention here that *saves* money rather than spending it.
+
+**"Why didn't you use moss.dev / how would you?"**
+> Our clinical detection is deterministic on purpose — semantic search doesn't belong
+> *in* that layer. Where moss fits is right below it: today symptom matching is
+> substring-based, so "my legs puff up at night" wouldn't match "peripheral oedema."
+> Moss's in-runtime semantic search maps patient language onto our symptom vocabulary
+> in sub-ten milliseconds — fast enough for the live voice loop — and the
+> deterministic rules still make every clinical call. That's the next integration.
 
 **"Isn't this just a drug interaction checker?"**
 > Interaction checkers fire on pairs from a static list and clinicians ignore them —
