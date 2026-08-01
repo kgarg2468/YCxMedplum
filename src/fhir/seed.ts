@@ -17,8 +17,36 @@
  * ⚠️ Entirely synthetic. Never put real PHI in a hackathon demo.
  */
 
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { MedplumClient } from '@medplum/core';
-import type { Patient, Condition } from '@medplum/fhirtypes';
+import type {
+  Coding, Condition, Identifier, MedicationRequest, MedicationStatement,
+  Patient, Practitioner, Resource,
+} from '@medplum/fhirtypes';
+
+/** Stable identifiers make every seeded resource find-or-create-able. */
+export const DEMO_IDENTIFIER_SYSTEM = 'https://ycxmedplum.dev/demo';
+
+/** The existing synthetic marker — never mistake this chart for PHI. */
+export const SYNTHETIC_TAG: Coding = { system: 'https://example.org/tags', code: 'synthetic-demo' };
+
+/** Review-generated resources carry this tag so they never feed the next call. */
+export const REVIEW_OUTPUT_TAG: Coding = { system: 'https://ycxmedplum.dev/tags', code: 'review-output' };
+
+const RXNORM = 'http://www.nlm.nih.gov/research/umls/rxnorm';
+const UCUM = 'http://unitsofmeasure.org';
+
+/** The one stable key for the demo patient. */
+const PATIENT_IDENTIFIER_VALUE = 'patient-margaret-okonkwo';
+
+/** Exact demographics required before a legacy synthetic patient may be adopted. */
+const MARGARET = {
+  family: 'Okonkwo',
+  given: 'Margaret',
+  gender: 'female',
+  birthDate: '1943-04-12',   // 82 years old
+} as const;
 
 export const DEMO_CONDITIONS = [
   'Alzheimer disease, mild',
@@ -27,37 +55,6 @@ export const DEMO_CONDITIONS = [
   'Urge urinary incontinence',
   'Insomnia',
 ];
-
-/**
- * ICD-10-CM codings for the seeded conditions. Each code verified against the
- * CMS FY2026 code set (in effect 2026-08-01, HIPAA-valid). "mild" has no ICD-10
- * axis for G30, so severity stays in the CodeableConcept text.
- */
-const ICD10CM = 'http://hl7.org/fhir/sid/icd-10-cm';
-const CONDITION_CODINGS: Record<string, { code: string; display: string }> = {
-  'Alzheimer disease, mild':    { code: 'G30.9',  display: "Alzheimer's disease, unspecified" },
-  'Essential hypertension':     { code: 'I10',    display: 'Essential (primary) hypertension' },
-  'Gout':                       { code: 'M10.9',  display: 'Gout, unspecified' },
-  'Urge urinary incontinence':  { code: 'N39.41', display: 'Urge incontinence' },
-  'Insomnia':                   { code: 'G47.00', display: 'Insomnia, unspecified' },
-};
-
-export const DEMO_BIRTHDATE = '1943-04-12';
-
-/** Whole-year age on a given date (defaults to today). */
-export function ageOn(birthDate: string, on = new Date()): number {
-  const b = new Date(birthDate);
-  let age = on.getFullYear() - b.getFullYear();
-  if (on.getMonth() < b.getMonth() || (on.getMonth() === b.getMonth() && on.getDate() < b.getDate())) age--;
-  return age;
-}
-
-/** "Margaret Okonkwo, 83" — computed from the FHIR resource, never hardcoded. */
-export function patientLabel(p?: Patient): string {
-  const n = p?.name?.[0];
-  const name = n ? [n.given?.join(' '), n.family].filter(Boolean).join(' ') : 'Margaret Okonkwo';
-  return `${name}, ${ageOn(p?.birthDate ?? DEMO_BIRTHDATE)}`;
-}
 
 /** Approximate durations of use, in weeks — drives the duration-gated PIM rules. */
 export const DEMO_DURATIONS: Record<string, number> = {
@@ -114,47 +111,258 @@ Patient: The sleeping pill. I don't think it even works anymore, and I hate feel
 Agent: That's very helpful, Margaret. Let me read the list back to you.
 `.trim();
 
-export async function seedDemoPatient(medplum: MedplumClient) {
-  // Idempotent: re-running the seed (or restarting the server) must not create
-  // another Margaret. Search by the stable demographics before creating.
-  const existing = await medplum.searchOne('Patient', `name=Okonkwo&birthdate=${DEMO_BIRTHDATE}`);
-  if (existing) {
-    console.log(`Reusing existing Patient/${existing.id} (idempotent seed).`);
-    return { patient: existing, conditions: [] as Condition[] };
-  }
+// ─── The authoritative cross-prescriber chart ────────────────────────────────
 
-  const patient = await medplum.createResource<Patient>({
+/**
+ * Five fictional prescribers. The demo's whole point is that no single one of
+ * them can see the whole list, so the cascade is invisible from any one chart.
+ */
+export const DEMO_PRACTITIONERS = [
+  { key: 'neurology-elena-park',        given: 'Elena',  family: 'Park',     display: 'Neurology — Dr. Elena Park' },
+  { key: 'urology-samuel-reed',         given: 'Samuel', family: 'Reed',     display: 'Urology — Dr. Samuel Reed' },
+  { key: 'cardiology-priya-shah',       given: 'Priya',  family: 'Shah',     display: 'Cardiology — Dr. Priya Shah' },
+  { key: 'primary-care-jordan-lee',     given: 'Jordan', family: 'Lee',      display: 'Primary care — Dr. Jordan Lee' },
+  { key: 'rheumatology-sofia-martinez', given: 'Sofia',  family: 'Martinez', display: 'Rheumatology — Dr. Sofia Martinez' },
+] as const;
+
+export interface DemoMedication {
+  ingredient: string;
+  /** Verified against the live RxNav API (rxcui.json?name=…) on 2026-08-01. */
+  rxcui: string;
+  doseValue: number | null;
+  doseUnit: string | null;
+  frequency: string;
+  sig: string;
+  /** null = source not recorded; the MedicationRequest omits `requester`. */
+  practitionerKey: string | null;
+  authoredOn: string;
+}
+
+/**
+ * Nine active prescriptions. Authored dates run in causal order so the hero
+ * chain reads correctly: amlodipine -> furosemide -> allopurinol.
+ * diphenhydramine and senna are deliberately absent — they exist only in the
+ * patient's own account, which is exactly what the interview is for.
+ */
+export const DEMO_MEDICATIONS: DemoMedication[] = [
+  { ingredient: 'donepezil',    rxcui: '135447', doseValue: 10,   doseUnit: 'mg', frequency: 'once daily',          sig: '10 mg once daily',        practitionerKey: 'neurology-elena-park',        authoredOn: '2022-03-14' },
+  { ingredient: 'oxybutynin',   rxcui: '32675',  doseValue: 5,    doseUnit: 'mg', frequency: 'three times daily',   sig: '5 mg three times daily',  practitionerKey: 'urology-samuel-reed',         authoredOn: '2023-06-02' },
+  { ingredient: 'amlodipine',   rxcui: '17767',  doseValue: 10,   doseUnit: 'mg', frequency: 'once daily',          sig: '10 mg once daily',        practitionerKey: 'cardiology-priya-shah',       authoredOn: '2021-09-08' },
+  { ingredient: 'furosemide',   rxcui: '4603',   doseValue: 20,   doseUnit: 'mg', frequency: 'every morning',       sig: '20 mg every morning',     practitionerKey: 'primary-care-jordan-lee',     authoredOn: '2022-11-17' },
+  { ingredient: 'allopurinol',  rxcui: '519',    doseValue: 100,  doseUnit: 'mg', frequency: 'once daily',          sig: '100 mg once daily',       practitionerKey: 'rheumatology-sofia-martinez', authoredOn: '2023-02-21' },
+  { ingredient: 'lisinopril',   rxcui: '29046',  doseValue: 10,   doseUnit: 'mg', frequency: 'once daily',          sig: '10 mg once daily',        practitionerKey: 'cardiology-priya-shah',       authoredOn: '2021-09-08' },
+  { ingredient: 'benzonatate',  rxcui: '18993',  doseValue: null, doseUnit: null, frequency: 'as needed for cough', sig: 'as needed for cough',     practitionerKey: 'primary-care-jordan-lee',     authoredOn: '2024-01-15' },
+  { ingredient: 'lorazepam',    rxcui: '6470',   doseValue: 1,    doseUnit: 'mg', frequency: 'at bedtime',          sig: '1 mg at bedtime',         practitionerKey: 'primary-care-jordan-lee',     authoredOn: '2017-05-03' },
+  // Source not recorded — the permanently source-unknown fixture.
+  { ingredient: 'omeprazole',   rxcui: '7646',   doseValue: 20,   doseUnit: 'mg', frequency: 'once daily',          sig: '20 mg once daily',        practitionerKey: null,                          authoredOn: '2019-04-11' },
+];
+
+// ─── find-or-create plumbing ─────────────────────────────────────────────────
+
+function demoIdentifier(value: string): Identifier {
+  return { system: DEMO_IDENTIFIER_SYSTEM, value };
+}
+
+function slug(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function hasTag(resource: Resource, tag: Coding): boolean {
+  return (resource.meta?.tag ?? []).some((t) => t.system === tag.system && t.code === tag.code);
+}
+
+function hasDemoIdentifier(resource: { identifier?: Identifier[] }): boolean {
+  return (resource.identifier ?? []).some((i) => i.system === DEMO_IDENTIFIER_SYSTEM);
+}
+
+async function findByIdentifier<T extends Resource>(
+  medplum: MedplumClient,
+  resourceType: T['resourceType'],
+  value: string,
+): Promise<T | undefined> {
+  return medplum.searchOne(
+    resourceType as never,
+    { identifier: `${DEMO_IDENTIFIER_SYSTEM}|${value}` },
+  ) as Promise<T | undefined>;
+}
+
+/** Search by stable identifier, create only when genuinely absent. */
+async function findOrCreate<T extends Resource>(
+  medplum: MedplumClient,
+  resourceType: T['resourceType'],
+  identifierValue: string,
+  build: () => T,
+): Promise<T> {
+  const existing = await findByIdentifier<T>(medplum, resourceType, identifierValue);
+  if (existing) return existing;
+  return medplum.createResource<T>(build());
+}
+
+// ─── legacy adoption (synthetic charts only) ─────────────────────────────────
+
+function isMargaret(patient: Patient): boolean {
+  const name = patient.name?.[0];
+  return (
+    name?.family === MARGARET.family &&
+    (name?.given ?? []).includes(MARGARET.given) &&
+    patient.gender === MARGARET.gender &&
+    patient.birthDate === MARGARET.birthDate
+  );
+}
+
+/**
+ * Charts seeded before stable identifiers existed must be adopted rather than
+ * duplicated — but only when the record is unambiguously the synthetic demo
+ * patient. A name match alone never adopts or mutates anything.
+ */
+async function adoptLegacyPatient(medplum: MedplumClient): Promise<Patient | undefined> {
+  const tagged = await medplum.searchResources('Patient', {
+    _tag: `${SYNTHETIC_TAG.system}|${SYNTHETIC_TAG.code}`,
+  });
+  const candidates = tagged.filter((p) => isMargaret(p) && !hasDemoIdentifier(p));
+  if (candidates.length !== 1) return undefined;
+
+  return medplum.updateResource<Patient>({
+    ...candidates[0],
+    identifier: [...(candidates[0].identifier ?? []), demoIdentifier(PATIENT_IDENTIFIER_VALUE)],
+  });
+}
+
+/** Give legacy conditions their stable identity instead of creating twins. */
+async function adoptLegacyConditions(medplum: MedplumClient, patient: Patient): Promise<void> {
+  const existing = await medplum.searchResources('Condition', {
+    subject: `Patient/${patient.id}`,
+  });
+  for (const text of DEMO_CONDITIONS) {
+    const legacy = existing.find((c) => c.code?.text === text && !hasDemoIdentifier(c));
+    if (!legacy) continue;
+    await medplum.updateResource<Condition>({
+      ...legacy,
+      identifier: [...(legacy.identifier ?? []), demoIdentifier(`condition-${slug(text)}`)],
+      meta: { ...legacy.meta, tag: [...(legacy.meta?.tag ?? []), SYNTHETIC_TAG] },
+    });
+  }
+}
+
+/**
+ * Pre-feature review output was written untagged. Tag it now so a prior review's
+ * MedicationStatements can never be replayed back into the next call's prefill.
+ */
+async function tagLegacyReviewOutput(medplum: MedplumClient, patient: Patient): Promise<void> {
+  const statements = await medplum.searchResources('MedicationStatement', {
+    subject: `Patient/${patient.id}`,
+  });
+  for (const s of statements) {
+    if (hasTag(s, REVIEW_OUTPUT_TAG)) continue;
+    await medplum.updateResource<MedicationStatement>({
+      ...s,
+      meta: { ...s.meta, tag: [...(s.meta?.tag ?? []), REVIEW_OUTPUT_TAG] },
+    });
+  }
+}
+
+// ─── the seeder ──────────────────────────────────────────────────────────────
+
+export async function seedDemoPatient(medplum: MedplumClient) {
+  // 1. Patient — stable identifier first, synthetic-only adoption second.
+  let patient = await findByIdentifier<Patient>(medplum, 'Patient', PATIENT_IDENTIFIER_VALUE);
+  if (!patient) {
+    const adopted = await adoptLegacyPatient(medplum);
+    if (adopted) {
+      patient = adopted;
+      await adoptLegacyConditions(medplum, adopted);
+      await tagLegacyReviewOutput(medplum, adopted);
+    }
+  }
+  patient ??= await medplum.createResource<Patient>({
     resourceType: 'Patient',
     active: true,
-    name: [{ given: ['Margaret'], family: 'Okonkwo' }],
-    gender: 'female',
-    birthDate: DEMO_BIRTHDATE,
+    identifier: [demoIdentifier(PATIENT_IDENTIFIER_VALUE)],
+    name: [{ given: [MARGARET.given], family: MARGARET.family }],
+    gender: MARGARET.gender,
+    birthDate: MARGARET.birthDate,
     telecom: [{ system: 'phone', value: '555-0100' }],
     // Marks the record as synthetic so nobody mistakes it for PHI.
-    meta: { tag: [{ system: 'https://example.org/tags', code: 'synthetic-demo' }] },
+    meta: { tag: [SYNTHETIC_TAG] },
   });
+  const subject = { reference: `Patient/${patient.id}` };
 
-  const conditions: Condition[] = [];
-  for (const text of DEMO_CONDITIONS) {
-    const coding = CONDITION_CODINGS[text];
-    conditions.push(await medplum.createResource<Condition>({
-      resourceType: 'Condition',
-      clinicalStatus: {
-        coding: [{ system: 'http://terminology.hl7.org/CodeSystem/condition-clinical', code: 'active' }],
-      },
-      subject: { reference: `Patient/${patient.id}` },
-      code: coding
-        ? { coding: [{ system: ICD10CM, code: coding.code, display: coding.display }], text }
-        : { text },
-    }));
+  // 2. Practitioners — the five recorded sources.
+  const practitioners: Practitioner[] = [];
+  const practitionerByKey = new Map<string, Practitioner>();
+  for (const p of DEMO_PRACTITIONERS) {
+    const practitioner = await findOrCreate<Practitioner>(
+      medplum, 'Practitioner', `practitioner-${p.key}`, () => ({
+        resourceType: 'Practitioner',
+        active: true,
+        identifier: [demoIdentifier(`practitioner-${p.key}`)],
+        name: [{ given: [p.given], family: p.family, prefix: ['Dr.'] }],
+        meta: { tag: [SYNTHETIC_TAG] },
+      }));
+    practitioners.push(practitioner);
+    practitionerByKey.set(p.key, practitioner);
   }
 
-  console.log(`Seeded Patient/${patient.id} with ${conditions.length} conditions.`);
-  return { patient, conditions };
+  // 3. Conditions — the recorded indications.
+  const conditions: Condition[] = [];
+  for (const text of DEMO_CONDITIONS) {
+    conditions.push(await findOrCreate<Condition>(
+      medplum, 'Condition', `condition-${slug(text)}`, () => ({
+        resourceType: 'Condition',
+        identifier: [demoIdentifier(`condition-${slug(text)}`)],
+        clinicalStatus: { coding: [{ code: 'active' }] },
+        subject,
+        code: { text },
+        meta: { tag: [SYNTHETIC_TAG] },
+      })));
+  }
+
+  // 4. MedicationRequests — the authoritative nine.
+  const medicationRequests: MedicationRequest[] = [];
+  for (const m of DEMO_MEDICATIONS) {
+    const identifierValue = `medication-request-${m.ingredient}`;
+    const prescriber = m.practitionerKey ? practitionerByKey.get(m.practitionerKey) : undefined;
+    const display = m.practitionerKey
+      ? DEMO_PRACTITIONERS.find((p) => p.key === m.practitionerKey)!.display
+      : undefined;
+
+    medicationRequests.push(await findOrCreate<MedicationRequest>(
+      medplum, 'MedicationRequest', identifierValue, () => ({
+        resourceType: 'MedicationRequest',
+        status: 'active',
+        intent: 'order',
+        identifier: [demoIdentifier(identifierValue)],
+        subject,
+        authoredOn: m.authoredOn,
+        medicationCodeableConcept: {
+          coding: [{ system: RXNORM, code: m.rxcui, display: m.ingredient }],
+          text: m.ingredient,
+        },
+        // Omitted entirely when the source was never recorded (omeprazole).
+        requester: prescriber && display
+          ? { reference: `Practitioner/${prescriber.id}`, display }
+          : undefined,
+        dosageInstruction: [{
+          text: m.sig,
+          timing: { code: { text: m.frequency } },
+          doseAndRate: m.doseValue !== null && m.doseUnit
+            ? [{ doseQuantity: { value: m.doseValue, unit: m.doseUnit, system: UCUM, code: m.doseUnit } }]
+            : undefined,
+        }],
+        meta: { tag: [SYNTHETIC_TAG] },
+      })));
+  }
+
+  console.log(
+    `Seeded Patient/${patient.id}: ${practitioners.length} practitioners, ` +
+    `${conditions.length} conditions, ${medicationRequests.length} medication requests.`,
+  );
+  return { patient, practitioners, conditions, medicationRequests };
 }
 
 // Run directly: `npx tsx src/fhir/seed.ts`
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL, not string concatenation — this repository path contains a space.
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const medplum = new MedplumClient({ baseUrl: process.env.MEDPLUM_BASE_URL });
   await medplum.startClientLogin(
     process.env.MEDPLUM_CLIENT_ID!,
