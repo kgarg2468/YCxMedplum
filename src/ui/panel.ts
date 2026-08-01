@@ -25,7 +25,13 @@ export interface ReviewSnapshot {
   patientId?: string;
   /** "Margaret Okonkwo, 83" — computed from the FHIR Patient, never hardcoded. */
   patientLabel?: string;
-  written?: { meds: number; flags: number; cascades: number; goals: number; risk: boolean; task?: boolean };
+  written?: {
+    meds: number; flags: number; cascades: number; goals: number; risk: boolean;
+    /** True when a red flag produced an urgent Task. */
+    task?: boolean;
+    /** Per-resource detail incl. the note/comment text the console UI buries. */
+    resources?: { type: string; id: string; label: string; note?: string }[];
+  };
 }
 
 const esc = (s: string) =>
@@ -283,9 +289,22 @@ function renderBody(snap: ReviewSnapshot): string {
   <div class="card">
     MedicationStatement &times; ${snap.written.meds} &middot; Flag &times; ${snap.written.flags} &middot;
     DetectedIssue &times; ${snap.written.cascades} &middot; Goal &times; ${snap.written.goals}${snap.written.risk ? ' &middot; RiskAssessment' : ''}
+    ${snap.written.resources?.length ? `
+    <table style="margin-top:12px">
+      <thead><tr><th style="width:190px">Resource</th><th>Content</th><th>Notes written with it</th></tr></thead>
+      <tbody>
+      ${snap.written.resources.map((r) => `
+        <tr>
+          <td><a href="https://app.medplum.com/${r.type}/${r.id}" target="_blank">${r.type}</a></td>
+          <td>${esc(r.label)}</td>
+          <td class="muted">${r.note ? esc(r.note) : '&mdash;'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : ''}
     <div class="citation">DetectedIssue carries <code>implicated</code> in causal order. Recommendation resources are
     written as <em>preliminary / draft / proposed</em> (DetectedIssue&nbsp;preliminary &middot; RiskAssessment&nbsp;preliminary &middot;
     CarePlan&nbsp;draft &middot; Communication&nbsp;preparation &middot; Goal&nbsp;proposed) — a clinician confirms before anything becomes final.</div>
+
   </div>` : '';
 
   return `

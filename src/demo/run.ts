@@ -18,7 +18,7 @@ import { extractWithRetry } from '../llm/extract.js';
 import { resolveAll } from '../rxnav.js';
 import { runReview, detectCascadeChains } from '../engine/detect.js';
 import { explainFinding, buildTaper, challenge } from '../llm/agents.js';
-import { persistReview, writeTaperPlan, writePrescriberMessage } from '../fhir/writers.js';
+import { persistReview, writeTaperPlan, writePrescriberMessage, summarizeWritten } from '../fhir/writers.js';
 import { checkRedFlags } from '../voice/prompt.js';
 import type { ReviewSnapshot } from '../ui/panel.js';
 
@@ -164,6 +164,7 @@ async function main() {
     meds: written.meds.length, flags: written.flags.length,
     cascades: written.cascades.length, goals: written.goals.length,
     risk: Boolean(written.risk),
+    resources: summarizeWritten(written),
   };
   saveSnapshot(snapshot);
 
