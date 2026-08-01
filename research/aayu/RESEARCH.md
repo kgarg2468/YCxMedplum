@@ -1,7 +1,7 @@
 # RESEARCH.md — Clinical Evidence Base (Primary Sources)
 
 > Pulled directly from PubMed, 2026-08-01 11:20 PT. Machine-readable citations in
-> [`EVIDENCE.bib`](EVIDENCE.bib). This file is the human version: what each study
+> [`EVIDENCE.bib`](../../docs/EVIDENCE.bib). This file is the human version: what each study
 > found, what we're allowed to say on stage, and what we must never claim.
 
 ---
@@ -94,4 +94,4 @@ the follow-up question.
 
 *Method: PubMed E-utilities (esearch/efetch), abstracts read in full for every
 effect size quoted. No secondary summaries trusted. LaTeX entries with the same
-annotations: [`EVIDENCE.bib`](EVIDENCE.bib).*
+annotations: [`EVIDENCE.bib`](../../docs/EVIDENCE.bib).*
