@@ -10,7 +10,8 @@
     "demo:full": "tsx --env-file-if-exists=.env src/demo/run.ts --explain",
     "server": "tsx --env-file-if-exists=.env src/server.ts",
     "test": "tsx src/test/engine.test.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "vapi:setup": "tsx --env-file-if-exists=.env src/voice/createAssistant.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.65.0",
