@@ -181,4 +181,6 @@ posture.
 - [TEAM.md](TEAM.md) — quick orientation and where to plug in
 - [docs/DECISIONS.md](docs/DECISIONS.md) — every design decision and why
 - [docs/SETUP.md](docs/SETUP.md) — Medplum + voice platform credentials
-- [docs/DEMO.md](docs/DEMO.md) — presentation scripts
+- [docs/DEMO-2MIN.md](docs/DEMO-2MIN.md) — the two-minute presentation script
+- [docs/RUNBOOK.md](docs/RUNBOOK.md) — day-of operations
+- [docs/EVIDENCE.bib](docs/EVIDENCE.bib) — every statistic with its primary source
