@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 import { runReview, detectCascadeChains } from '../engine/detect.js';
 import { DEMO_CONDITIONS, DEMO_DURATIONS } from '../fhir/seed.js';
 import type { ResolvedMed, ExtractedSymptom } from '../types.js';
@@ -38,3 +39,36 @@ for (const f of r.findings) {
 }
 const chains = detectCascadeChains(r.findings.filter(f=>f.kind==='cascade'));
 console.log(`\nCHAINS: ${chains.map(c=>c.join(' -> ')).join(' | ') || 'none'}`);
+
+// ── Assertions — `npm test` must be able to FAIL ─────────────────────────────
+
+// 1. The reference output (demo depends on these exact numbers).
+assert.equal(r.acbScore, 8, `ACB expected 8, got ${r.acbScore}`);
+assert.equal(r.findings.length, 12, `expected 12 findings, got ${r.findings.length}`);
+assert.ok(
+  chains.some((c) => c.join('->') === 'amlodipine->furosemide->allopurinol'),
+  'hero chain amlodipine -> furosemide -> allopurinol not detected',
+);
+
+// 2. Negative control: a clean patient produces ZERO findings. This is the
+//    proof the engine measures rather than imagines — nothing is hardcoded.
+const clean = runReview({
+  meds: [
+    mk('atorvastatin', 'cholesterol'),
+    mk('levothyroxine', 'thyroid'),
+    mk('metformin', 'diabetes'),
+  ],
+  symptoms: [], conditions: [], values: [], redFlags: [], durationsWeeks: {},
+});
+assert.equal(clean.findings.length, 0, `clean patient should have 0 findings, got ${clean.findings.length}`);
+assert.equal(clean.acbScore, 0, `clean patient should have ACB 0, got ${clean.acbScore}`);
+
+// 3. Red flags pass through the engine to the result (the escalation path
+//    in server.ts consumes review.redFlags).
+const flagged = runReview({
+  meds: [], symptoms: [], conditions: [], values: [],
+  redFlags: ['chest pain'], durationsWeeks: {},
+});
+assert.deepEqual(flagged.redFlags, ['chest pain'], 'red flags must surface in the review result');
+
+console.log('\nALL ASSERTIONS PASSED — hero chain, negative control (0 findings), red-flag passthrough');
