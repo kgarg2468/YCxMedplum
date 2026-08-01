@@ -12,7 +12,7 @@
  * the conversation on a 3-second extraction makes the demo feel broken.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import express from 'express';
 import { MedplumClient } from '@medplum/core';
 import type { Patient } from '@medplum/fhirtypes';
@@ -27,15 +27,31 @@ import { renderReviewHtml, type ReviewSnapshot } from './ui/panel.js';
 const PORT = Number(process.env.PORT ?? 3000);
 const SNAPSHOT_PATH = 'out/last-review.json';
 
-// The review panel shows the most recent run — live call or canned demo.
-let lastSnapshot: ReviewSnapshot | null = existsSync(SNAPSHOT_PATH)
-  ? JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8'))
-  : null;
+// The review panel shows the most recent run — live call or canned demo. The
+// demo runner writes the same file from its own process, so re-read on mtime
+// change rather than caching forever: `npm run demo` must repaint the panel
+// without a server restart (that's the on-stage wifi-failure fallback).
+let lastSnapshot: ReviewSnapshot | null = null;
+let snapshotMtime = 0;
+
+function currentSnapshot(): ReviewSnapshot | null {
+  try {
+    if (existsSync(SNAPSHOT_PATH)) {
+      const mtime = statSync(SNAPSHOT_PATH).mtimeMs;
+      if (mtime !== snapshotMtime) {
+        lastSnapshot = JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8'));
+        snapshotMtime = mtime;
+      }
+    }
+  } catch { /* mid-write race — serve the cached one */ }
+  return lastSnapshot;
+}
 
 function saveSnapshot(snap: ReviewSnapshot) {
   lastSnapshot = snap;
   mkdirSync('out', { recursive: true });
   writeFileSync(SNAPSHOT_PATH, JSON.stringify(snap, null, 2));
+  snapshotMtime = statSync(SNAPSHOT_PATH).mtimeMs;
 }
 
 const app = express();
@@ -164,8 +180,8 @@ async function pollVapiCalls() {
 }
 setInterval(pollVapiCalls, 10_000);
 
-app.get('/review', (_req, res) => res.type('html').send(renderReviewHtml(lastSnapshot)));
-app.get('/review.json', (_req, res) => res.json(lastSnapshot));
+app.get('/review', (_req, res) => res.type('html').send(renderReviewHtml(currentSnapshot())));
+app.get('/review.json', (_req, res) => res.json(currentSnapshot()));
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
