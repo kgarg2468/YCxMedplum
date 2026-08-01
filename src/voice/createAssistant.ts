@@ -58,11 +58,14 @@ const config = {
   transcriber: { provider: 'deepgram', model: 'nova-3', language: 'en', keyterm: KEYTERMS },
   voice: { provider: 'deepgram', voiceId: 'asteria' },
   // transcript = per-turn red-flag checks; end-of-call-report = the full pipeline.
-  // status-update is the only one of the three that reliably carries `call.id`, and the
-  // server latches it so id-less transcript turns can be attributed to the right call.
-  // Without it both escalation dedupes fail and one call leaves a Task and a Flag per
-  // turn on the chart (observed live: four identical suicidality Flags).
-  serverMessages: ['transcript', 'status-update', 'end-of-call-report'],
+  //
+  // NOT subscribed: 'status-update'. The server can use it (see the call latch in
+  // src/server.ts) to attribute id-less transcript turns to a call, which is what makes
+  // the per-class escalation dedupe work. It is left off here because on the one live
+  // call where it was enabled, per-turn `transcript` events stopped arriving entirely,
+  // and that correlation has not been explained. Turning it on is a one-word change,
+  // but do it with VAPI_DEBUG=1 and confirm transcript events still arrive.
+  serverMessages: ['transcript', 'end-of-call-report'],
   ...(webhookUrl ? { server: { url: webhookUrl } } : {}),
   maxDurationSeconds: 1200,
   // An 82-year-old gathering her pill bottles goes quiet for a while. Vapi's
