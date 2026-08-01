@@ -52,8 +52,10 @@ const KIND_LABEL: Record<Finding['kind'], string> = {
 };
 
 /** Spelled numbers read better than numerals in a headline. Falls back to digits. */
-const WORDS = ['zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+const WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
 const spell = (n: number) => WORDS[n] ?? String(n);
+/** "One medication" / "Three medications". */
+const plural = (n: number, word: string) => `${spell(n)} ${word}${n === 1 ? '' : 's'}`;
 
 /** trigger —(linking symptom)→ treater, for cascade cards. */
 function cascadeFlow(f: Finding): string {
@@ -189,9 +191,12 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
     background: color-mix(in srgb, var(--good) 6%, var(--surface));
     border-color: color-mix(in srgb, var(--good) 30%, var(--border));
   }
+  /* Second and later chains render as h2 for heading semantics, so this must
+     override the global h2 rule (uppercase, 14px, flex) as well as h1. */
   .hero-claim {
     font-size: clamp(30px, 3.4vw, 46px); font-weight: 680; line-height: 1.08;
     letter-spacing: -0.022em; margin: 0; color: var(--ink);
+    text-transform: none; display: block;
   }
   .diagram { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px 0; margin-top: 26px; }
   .drug {
@@ -334,9 +339,10 @@ function renderBody(snap: ReviewSnapshot): string {
   // The chained cascade is the one un-fakeable moment in the demo. It leads the
   // page so it is on the projector within the first seconds, before any stat
   // tile. Everything below it is supporting evidence.
-  const hero = snap.chains.length ? snap.chains.map((chain) => `
+  const hero = snap.chains.length ? snap.chains.map((chain, i) => `
   <section class="hero">
-    <h1 class="hero-claim">${spell(chain.length)} medications. One root cause.</h1>
+    ${/* One h1 per document: the first chain owns it, any others are h2. */ ''}
+    <${i === 0 ? 'h1' : 'h2'} class="hero-claim">${plural(chain.length, 'medication')}. One root cause.</${i === 0 ? 'h1' : 'h2'}>
     <div class="diagram">
       ${chain.map((drug, i) => `
         ${i > 0 ? '<span class="arrow-col" aria-hidden="true">&#10230;</span>' : ''}

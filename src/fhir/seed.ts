@@ -46,9 +46,15 @@ export const DEMO_BIRTHDATE = '1943-04-12';
 
 /** Whole-year age on a given date (defaults to today). */
 export function ageOn(birthDate: string, on = new Date()): number {
-  const b = new Date(birthDate);
-  let age = on.getFullYear() - b.getFullYear();
-  if (on.getMonth() < b.getMonth() || (on.getMonth() === b.getMonth() && on.getDate() < b.getDate())) age--;
+  // FHIR `date` is a plain calendar date with no timezone. `new Date('1943-04-12')`
+  // parses it as UTC midnight, so reading it back with local getters shifts it a day
+  // earlier anywhere west of UTC (including here) and ages the patient down for a
+  // 24h window around the birthday. Compare calendar parts as plain integers instead.
+  const [by, bm, bd] = birthDate.split('-').map(Number);
+  if (!by || !bm || !bd) return NaN;
+  const y = on.getFullYear(), m = on.getMonth() + 1, d = on.getDate();
+  let age = y - by;
+  if (m < bm || (m === bm && d < bd)) age--;
   return age;
 }
 
