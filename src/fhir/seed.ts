@@ -46,9 +46,15 @@ export const DEMO_BIRTHDATE = '1943-04-12';
 
 /** Whole-year age on a given date (defaults to today). */
 export function ageOn(birthDate: string, on = new Date()): number {
-  const b = new Date(birthDate);
-  let age = on.getFullYear() - b.getFullYear();
-  if (on.getMonth() < b.getMonth() || (on.getMonth() === b.getMonth() && on.getDate() < b.getDate())) age--;
+  // FHIR `date` is a plain calendar date with no timezone. `new Date('1943-04-12')`
+  // parses it as UTC midnight, so reading it back with local getters shifts it a day
+  // earlier anywhere west of UTC (including here) and ages the patient down for a
+  // 24h window around the birthday. Compare calendar parts as plain integers instead.
+  const [by, bm, bd] = birthDate.split('-').map(Number);
+  if (!by || !bm || !bd) return NaN;
+  const y = on.getFullYear(), m = on.getMonth() + 1, d = on.getDate();
+  let age = y - by;
+  if (m < bm || (m === bm && d < bd)) age--;
   return age;
 }
 
@@ -137,12 +143,7 @@ export async function seedDemoPatient(medplum: MedplumClient) {
   // Idempotent: re-running the seed (or restarting the server) must not create
   // another Margaret. Search by the stable demographics before creating.
   const existing = await medplum.searchOne('Patient', `name=Okonkwo&birthdate=${DEMO_BIRTHDATE}`);
-  if (existing) {
-    console.log(`Reusing existing Patient/${existing.id} (idempotent seed).`);
-    return { patient: existing, conditions: [] as Condition[] };
-  }
-
-  const patient = await medplum.createResource<Patient>({
+  const patient = existing ?? await medplum.createResource<Patient>({
     resourceType: 'Patient',
     active: true,
     name: [{ given: ['Margaret'], family: 'Okonkwo' }],
@@ -153,23 +154,46 @@ export async function seedDemoPatient(medplum: MedplumClient) {
     meta: { tag: [{ system: 'https://example.org/tags', code: 'synthetic-demo' }] },
   });
 
-  const conditions: Condition[] = [];
+  // Conditions are reconciled on EVERY run, not just on first create. A patient
+  // seeded before the ICD-10 codings existed would otherwise keep bare `text`
+  // forever, because the idempotency check above returns the old record.
+  const conditions = await ensureConditions(medplum, patient);
+
+  console.log(existing
+    ? `Reusing Patient/${patient.id} (idempotent seed), ${conditions.length} conditions reconciled.`
+    : `Seeded Patient/${patient.id} with ${conditions.length} conditions.`);
+  return { patient, conditions };
+}
+
+/**
+ * Upsert the demo Conditions so each one carries its verified ICD-10-CM coding.
+ * Existing text-only Conditions are upgraded in place rather than duplicated.
+ */
+async function ensureConditions(medplum: MedplumClient, patient: Patient): Promise<Condition[]> {
+  const found = await medplum.searchResources('Condition', `subject=Patient/${patient.id}&_count=50`);
+  const out: Condition[] = [];
+
   for (const text of DEMO_CONDITIONS) {
     const coding = CONDITION_CODINGS[text];
-    conditions.push(await medplum.createResource<Condition>({
-      resourceType: 'Condition',
-      clinicalStatus: {
-        coding: [{ system: 'http://terminology.hl7.org/CodeSystem/condition-clinical', code: 'active' }],
-      },
-      subject: { reference: `Patient/${patient.id}` },
-      code: coding
-        ? { coding: [{ system: ICD10CM, code: coding.code, display: coding.display }], text }
-        : { text },
-    }));
-  }
+    const code = coding
+      ? { coding: [{ system: ICD10CM, code: coding.code, display: coding.display }], text }
+      : { text };
+    const clinicalStatus = {
+      coding: [{ system: 'http://terminology.hl7.org/CodeSystem/condition-clinical', code: 'active' }],
+    };
 
-  console.log(`Seeded Patient/${patient.id} with ${conditions.length} conditions.`);
-  return { patient, conditions };
+    const match = found.find((c) => c.code?.text === text);
+    if (!match) {
+      out.push(await medplum.createResource<Condition>({
+        resourceType: 'Condition', clinicalStatus, subject: { reference: `Patient/${patient.id}` }, code,
+      }));
+    } else if (!match.code?.coding?.length && coding) {
+      out.push(await medplum.updateResource<Condition>({ ...match, clinicalStatus, code }));
+    } else {
+      out.push(match);
+    }
+  }
+  return out;
 }
 
 // Run directly: `npx tsx src/fhir/seed.ts`
