@@ -9,7 +9,7 @@
     "demo:fast": "tsx --env-file-if-exists=.env src/demo/run.ts --no-fhir",
     "demo:full": "tsx --env-file-if-exists=.env src/demo/run.ts --explain",
     "server": "tsx --env-file-if-exists=.env src/server.ts",
-    "test": "tsx src/test/engine.test.ts",
+    "test": "tsx src/fhir/seed.test.ts && tsx src/test/engine.test.ts && tsx src/context/loadChartContext.test.ts && tsx src/context/compareMedicationState.test.ts && tsx src/voice/buildPrefill.test.ts && tsx src/llm/extract.test.ts && tsx src/voice/callCoordinator.test.ts && tsx src/fhir/writers.test.ts && tsx src/ui/panel.test.ts && tsx src/server.test.ts",
     "typecheck": "tsc --noEmit",
     "vapi:setup": "tsx --env-file-if-exists=.env src/voice/createAssistant.ts",
     "panel:canned": "cp demo-assets/canned-review.json out/last-review.json && echo 'Panel reset to full canned dataset — repaints in ~3s'"
