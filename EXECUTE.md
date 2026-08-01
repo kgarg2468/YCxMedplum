@@ -67,8 +67,10 @@ We did the thing that wins before most teams finished their `npm create vite`:
 
 - **We have the only subtraction thesis in the building.** 42% of US adults over 65
   take 5+ daily meds; 18.8% are on a potentially inappropriate one (2023 ambulatory
-  cohort, n=81,295). A deprescribing conversation returns 33:1 (STOPPFrail) and
-  nobody does it because nobody is paid to. Every other team is building "more" —
+  cohort, n=81,295). A deprescribing conversation returns 33:1 (STOPPFrail). The
+  funded version of medication review is a compliance checkbox (CMS CMRs, call-
+  center MTM vendors) — the cascade-finding conversation itself was never
+  automated until today. Every other team is building "more" —
   more scribing, more research, more documentation. The judging criteria literally
   say "enhancing clinicians rather than adding to their workload," and we are the
   only team whose product **is** the criterion.
@@ -252,5 +254,8 @@ the pad.
 Every 30 minutes, read the two judging criteria out loud and ask: *does the thing
 I am doing right now move either number?* If not, stop doing it. The criteria are
 the physics. Everything else — including this document — is a recommendation.
+
+**"The best part is no part. The best process is no process."** (source: Tesla earnings call, 2021)
+g else — including this document — is a recommendation.
 
 **"The best part is no part. The best process is no process."** (source: Tesla earnings call, 2021)

@@ -9,7 +9,8 @@ for a clinician to review. Built for the YC × Medplum Agentic Healthcare Hackat
 
 The pitch in one line: every AI health tool *adds* — more diagnosis, more docs.
 The highest-return intervention in geriatric medicine is **subtraction**, and
-nobody has built an agent for it.
+the funded version of medication review is a compliance checkbox — the
+conversation that finds a prescribing cascade is the part no one automated.
 
 ## Status: it works, end to end, tested over a real phone call
 

@@ -28,12 +28,16 @@ one demo. Here is each lock and each key.
 
 **The recognition we hand her:** Deprescribe *is* her thesis, instantiated.
 Vertical: geriatric medication management. Agent: does a 30-minute unreimbursed
-clinical workflow autonomously, ends in human sign-off. Wedge: nobody is paid to
-subtract, so no incumbent occupies the space.
+clinical workflow autonomously, ends in human sign-off. Wedge: the funded
+version of medication review is a completion-metric checkbox; the cascade-
+finding conversation itself is unautomated. *(Correction per VERDICT.md: MTM/CMR
+is a real funded category with incumbents — Arine, 40M recs/yr. Frame as
+funded-category-bad-execution, never "no incumbents.")*
 
 **The line (say it in Q&A, not the pitch):** *"This is a vertical agent for the
-workflow nobody bills for. The 30 minutes nobody is paid to spend is exactly
-where an agent belongs — 33:1 measured return, zero incumbents."*
+conversation the checkbox economy skips. The 30 minutes the CMR call center
+doesn't spend is exactly where an agent belongs — 33:1 measured return, on a
+billing rail that already exists."*
 
 **Her trap question:** "Why won't Epic/an EHR just do this?" Answer: EHRs monetize
 documentation volume, not subtraction; deprescribing *reduces* billable events

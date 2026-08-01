@@ -2,8 +2,11 @@
 
 Every AI health company is building tools that **add**: more diagnosis, more
 research, more documentation. The highest-return intervention in geriatric
-medicine is **subtraction** — and there is no agent for it, because nobody gets
-paid to take a medication away.
+medicine is **subtraction**. Medication review is a funded category — CMS
+mandates it, analytics vendors fire 40M+ recommendations a year at pharmacist
+call centers — yet 18.8% of seniors are *still* on an inappropriate med, because
+the paid version is a compliance checkbox. The conversation that actually finds
+a prescribing cascade is the part no one's system does. That's what we built.
 
 ## The problem
 

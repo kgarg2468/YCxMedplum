@@ -31,8 +31,10 @@ npm run panel:canned     # panel shows the full 13-finding dataset instantly
 
 > Every AI health company is building tools that add. More diagnosis, more research,
 > more documentation. The highest-return intervention in geriatric medicine is
-> subtraction — and nobody has built an agent for it, because nobody gets paid to
-> take a medication away. This is Deprescribe, on Medplum.
+> subtraction. Medication review is a mandated, funded category — and it's done as
+> a compliance checkbox, which is why one in five seniors is still on an
+> inappropriate med. The conversation that finds the cascade is what we automated.
+> This is Deprescribe, on Medplum.
 
 **0:20 — FORK.**
 
