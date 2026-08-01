@@ -20,7 +20,9 @@ nobody has built an agent for it.
   (her blood-pressure drug caused swelling → got a water pill → which caused gout →
   got a gout drug. 2 of those 3 drugs treat side effects of the first one.)
 - FHIR resources written to Medplum automatically ~15s after hangup
-- Review panel repaints itself: http://localhost:3000/review
+- A review dashboard that repaints itself seconds after the call ends
+  (`npm run server`, then open `localhost:3000/review` — it ships with a full
+  demo dataset via `npm run panel:canned`, so you can see it without any keys)
 
 ## Try it in 2 minutes (no keys needed)
 
