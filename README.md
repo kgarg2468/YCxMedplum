@@ -14,7 +14,7 @@ a prescribing cascade is the part no one's system does. That's what we built.
 at least one potentially inappropriate medication (2023 ambulatory cohort,
 n=81,295). A structured deprescribing conversation takes thirty minutes and isn't
 reimbursed — so it rarely happens, even though the STOPPFrail trial measured a
-**33:1 cost–benefit ratio** for doing it.
+**−2.6 medications per patient and lower drug costs, with no detected harm** in a randomized trial of doing it (STOPPFrail RCT, Curtin 2020, JAGS; see docs/EVIDENCE.bib).
 
 The most invisible version of the problem is the **prescribing cascade**: a drug
 prescribed to treat the side effect of another drug. Our demo patient's chart

@@ -1,0 +1,127 @@
+% EVIDENCE.bib — primary-source citations for every clinical claim in the pitch
+% Pulled directly from PubMed (eutils), 2026-08-01 11:20 PT. Each entry annotated
+% with the effect size we are allowed to say out loud, and nothing stronger.
+
+% ============================================================================
+% CLAIM 1 — STOPPFrail deprescribing works and is safe (the headline)
+% ============================================================================
+@article{curtin2020stoppfrail,
+  author  = {Curtin, Denis and Jennings, Emma and Daunt, Ruth and Curtin, Suzanne
+             and Randles, Mary and Gallagher, Paul and O'Mahony, Denis},
+  title   = {Deprescribing in Older People Approaching End of Life: A Randomized
+             Controlled Trial Using {STOPPFrail} Criteria},
+  journal = {Journal of the American Geriatrics Society},
+  year    = {2020}, volume = {68}, number = {4}, pages = {762--769},
+  doi     = {10.1111/jgs.16278}, note = {PMID: 31868920}
+}
+% RCT, n=130, age >=75, frail, 5+ drugs. Intervention: -2.6 meds vs -0.36 control
+% (mean diff 2.25, 95% CI 1.18-3.32, p<.001). Monthly med cost -$74.97 vs -$13.22
+% (diff $61.74/mo, p=.02). NO significant differences in falls, hospitalizations,
+% QoL, or mortality (trial underpowered for those).
+% SAY: "STOPPFrail-guided deprescribing removed 2+ medications per patient and cut
+% drug costs ~$62/month with no detected harm, in an RCT."
+% DO NOT SAY: "33:1 ROI" — see WARNING at bottom.
+
+% ============================================================================
+% CLAIM 2 — the prescribing cascade in our demo is real and measured (the demo)
+% ============================================================================
+@article{savage2020cascade,
+  author  = {Savage, Rachel D. and Visentin, Jessica D. and Bronskill, Susan E.
+             and others and Rochon, Paula A. and McCarthy, Lisa M.},
+  title   = {Evaluation of a Common Prescribing Cascade of Calcium Channel
+             Blockers and Diuretics in Older Adults With Hypertension},
+  journal = {JAMA Internal Medicine},
+  year    = {2020}, volume = {180}, number = {5}, pages = {643--651},
+  doi     = {10.1001/jamainternmed.2019.7087}, note = {PMID: 32091538}
+}
+% Population cohort, Ontario, n=41,086 new CCB users vs 297,933 controls, age 66+.
+% New CCB (e.g., amlodipine) -> loop diuretic within 90 days: HR 2.51 (95% CI
+% 2.13-2.96) vs unrelated-drug controls; rises to ~2.99 in days 31-60. Cumulative
+% incidence 1.4% vs 0.5%.
+% SAY: "Our demo cascade is not hypothetical: JAMA Internal Medicine measured it —
+% new CCB users are 2.5x more likely to be put on a loop diuretic within 90 days,
+% in a cohort of 41,000 older adults."
+% This is the single strongest citation we own. It IS our demo, quantified.
+
+% ============================================================================
+% CLAIM 3 — deprescribing safety (the kill-shot defense) + HONEST null results
+% ============================================================================
+@article{herrinton2023bundled,
+  author  = {Herrinton, Lisa J. and others},
+  title   = {Effectiveness of Bundled Hyperpolypharmacy Deprescribing Compared
+             With Usual Care Among Older Adults: A Randomized Clinical Trial},
+  journal = {JAMA Network Open},
+  year    = {2023}, doi = {10.1001/jamanetworkopen.2023.22505}, note = {PMID: 37428504}
+}
+% RCT, n=2470, age 76+. Bundled deprescribing in an ALREADY-integrated system:
+% no reduction in meds vs usual care, and — key for us — NO adverse drug
+% withdrawal effects. Null on efficacy in that setting, clean on safety.
+
+@article{phelan2024cns,
+  author  = {Phelan, Elizabeth A. and others},
+  title   = {Reducing Central Nervous System--Active Medications to Prevent Falls
+             and Injuries Among Older Adults: A Cluster Randomized Clinical Trial},
+  journal = {JAMA Network Open},
+  year    = {2024}, doi = {10.1001/jamanetworkopen.2024.24234}, note = {PMID: 39052289}
+}
+% Cluster RCT, n=2367. Intervention raised TCA discontinuation 1.79x (95% CI
+% 1.29-2.50) but did NOT reduce medically treated falls (HR 1.11, ns).
+% SAY (safety): "Across recent large RCTs, supervised deprescribing shows no
+% adverse withdrawal effects — stopping correctly is safe."
+% SAY (honesty, and this is our WEDGE): "The big trials that failed, failed at
+% *getting drugs stopped* — the intervention was letters and EHR flags, not a
+% conversation. Discontinuation rates moved 1.8x when someone actually engaged.
+% The bottleneck is the conversation. That's the part we automated."
+
+% ============================================================================
+% CLAIM 4 — PIM prevalence (the market stat)
+% ============================================================================
+@article{rezaee2026pim,
+  author  = {Rezaee, Mehdi and others},
+  title   = {Prevalence of Potentially Inappropriate Medication Prescriptions in
+             Older Adults},
+  journal = {Advanced Biomedical Research},
+  year    = {2026}, note = {PMID: 41868993}
+}
+% Plus our existing 2023 ambulatory cohort (n=81,295, 18.8% PIM) already cited in
+% README. Range across settings/criteria runs ~19-57%; ALWAYS name the cohort.
+% SAY: "18.8% in an ambulatory cohort of 81,295 — and that's the conservative end."
+
+% ============================================================================
+% CLAIM 5 — anticholinergic burden -> outcomes (the ACB-8 panel badge)
+% ============================================================================
+@article{gravesmorris2020acb,
+  author  = {Graves-Morris, Katherine and Stewart, Carrie and Soiza, Roy L. and
+             Taylor-Rowan, Martin and Quinn, Terence J. and Loke, Yoon K. and
+             Myint, Phyo Kyaw},
+  title   = {The Prognostic Value of Anticholinergic Burden Measures in Relation
+             to Mortality in Older Individuals: A Systematic Review and Meta-Analysis},
+  journal = {Frontiers in Pharmacology},
+  year    = {2020}, doi = {10.3389/fphar.2020.00570}, note = {PMID: 32411001}
+}
+% Systematic review + meta-analysis: 18 cohorts, n=498,056. Meta-analysis showed
+% increased mortality risk with higher ACB (most evidence from the ACB scale —
+% the exact scale our panel computes). Evidence quality moderate; say "associated."
+@article{uusvaara2011anticholinergic,
+  author  = {Uusvaara, Juho and others},
+  title   = {Association of Anticholinergic Drugs with Hospitalization and
+             Mortality Among Older Cardiovascular Patients},
+  journal = {Drugs \& Aging},
+  year    = {2011}, doi = {10.2165/11585060-000000000-00000}, note = {PMID: 21275438}
+}
+% Prospective: DAP users ~3x hospital days/person-year (14.9 vs 5.2, p<.001).
+% SAY: "An ACB score of 8 is not a trivia number — higher burden is associated
+% with increased mortality in a meta-analysis of half a million patients, and ~3x
+% the hospital days in prospective cohorts."
+
+% ============================================================================
+% ⚠️ WARNINGS — claims the evidence does NOT support (fix before freeze)
+% ============================================================================
+% 1. "33:1 STOPPFrail return" — NOT located in the primary RCT. Curtin 2020 shows
+%    $61.74/month drug-cost savings and med reduction, not a 33:1 ratio. Unless
+%    someone produces the 33:1 source in the next hour, REPLACE everywhere with:
+%    "removed 2+ meds per patient and cut drug costs with no detected harm (RCT)."
+%    An unsourced ratio is exactly what Ana will pull the thread on.
+% 2. Falls/mortality benefit: recent RCTs are NULL on those endpoints. Never claim
+%    deprescribing "prevents falls." Claim: safe, fewer meds, lower cost, and the
+%    engagement bottleneck is the conversation (Phelan's 1.79x discontinuation).

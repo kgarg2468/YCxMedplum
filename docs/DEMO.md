@@ -139,7 +139,7 @@ enabled, enhancing clinicians rather than adding to their workload"*:
 - **Automated** → the whole pipeline runs unattended from hangup to chart
 - **Enhancing clinicians, not adding workload** → the close (now word-for-word), plus:
   the 30-minute unreimbursed review arrives *done*, as drafts to approve
-- **Patient care impact** → 18.8% on a PIM, ACB→falls/cognition, STOPPFrail 33:1
+- **Patient care impact** → 18.8% on a PIM, ACB→mortality (meta-analysis n=498k), STOPPFrail RCT: −2.6 meds/patient, no harm
 
 **2. Effective use of provided technologies** (*"Deepgram, Medplum, moss.dev, and/or
 Stedi"* — "and/or": two used deeply beats four used thinly, say that with confidence):

@@ -36,7 +36,7 @@ That's the entire law. Everything else is a recommendation.
 |---|---|---|
 | Diana Hu (YC Partner) | A fundable company, a founder with a spiky POV | 8/10 — thesis is genuinely contrarian |
 | Cody Ebberson (Medplum CTO) | Correct FHIR. He will know in 10 seconds if we faked it | 9/10 — 8 resource types, drafts for clinician approval |
-| Ana Yoon Faria de Lima (Pavoot) | Rigor, numbers, olympiad-brain | 8/10 — 33:1 STOPPFrail, n=81,295, ACB scale |
+| Ana Yoon Faria de Lima (Pavoot) | Rigor, numbers, olympiad-brain | 8/10 — STOPPFrail RCT (−2.6 meds, 95% CI cited), n=81,295, ACB meta n=498k |
 | Naomi Carrigan (Deepgram) | Deepgram doing something hard | 7/10 — real telephony, garbled-name recovery story |
 | Victor Wang (Deepgram) | Same | 7/10 |
 | Sri Raghu Malireddi (Moss cofounder) | **Moss in the loop** | **2/10 — we mention Moss in a Q&A doc. That's it.** |
@@ -67,7 +67,7 @@ We did the thing that wins before most teams finished their `npm create vite`:
 
 - **We have the only subtraction thesis in the building.** 42% of US adults over 65
   take 5+ daily meds; 18.8% are on a potentially inappropriate one (2023 ambulatory
-  cohort, n=81,295). A deprescribing conversation returns 33:1 (STOPPFrail). The
+  cohort, n=81,295). STOPPFrail-guided deprescribing removes 2+ meds per patient with no detected harm (RCT, Curtin 2020). The
   funded version of medication review is a compliance checkbox (CMS CMRs, call-
   center MTM vendors) — the cascade-finding conversation itself was never
   automated until today. Every other team is building "more" —
@@ -217,7 +217,7 @@ the pad.
    findings arrive ranked with citations, so review is minutes, not thirty.
 5. **"Business model? Nobody pays for deprescribing."** — Today, correct — that's
    why the problem exists. But Medicare pays for MTM (Part D) and CMS quality
-   measures penalize polypharmacy outcomes; the payer is the buyer, 33:1 is the
+   measures penalize polypharmacy outcomes; the payer is the buyer, the RCT evidence is the
    pitch. We sell subtraction to the entity that eats the cost of addition.
 6. **"What did you build *today*?"** — Answer with the commit log, not adjectives.
 

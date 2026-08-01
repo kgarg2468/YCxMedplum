@@ -36,7 +36,7 @@ funded-category-bad-execution, never "no incumbents.")*
 
 **The line (say it in Q&A, not the pitch):** *"This is a vertical agent for the
 conversation the checkbox economy skips. The 30 minutes the CMR call center
-doesn't spend is exactly where an agent belongs — 33:1 measured return, on a
+doesn't spend is exactly where an agent belongs — RCT-proven med reduction, on a
 billing rail that already exists."*
 
 **Her trap question:** "Why won't Epic/an EHR just do this?" Answer: EHRs monetize
@@ -87,7 +87,7 @@ a clinician would issue new Requests. That answer, delivered fast, ends the exam
   that knows the difference between a claim and a measurement.
 
 **The recognition we hand her:** the numbers are already on the slide — n=81,295
-cohort, 18.8% PIM rate, STOPPFrail 33:1, ACB score of 8 on the demo patient. Add
+cohort, 18.8% PIM rate, STOPPFrail RCT effect (−2.6 meds, p<.001), ACB 8 on the demo patient. Add
 one honesty beat: *"RxNorm resolved 11 of 12 spoken names; the 12th is surfaced
 as unresolved, not guessed."* Olympiad brains trust systems that show their
 failure paths.
