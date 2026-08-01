@@ -86,10 +86,11 @@ async function screen(text: string) {
   // Off first, on purpose: in `off` the session is never constructed, so this ordering
   // also demonstrates that the off path does no Moss work rather than just discarding it.
   renderOff(await inMode('off', text));
-  renderOn(await inMode('on', text));
+  const onResult = await inMode('on', text);
+  renderOn(onResult);
 
   const lexicalMissed = checkRedFlags(text).length === 0;
-  const sentinelCaught = wouldWriteFlag(await inMode('on', text)).length > 0;
+  const sentinelCaught = wouldWriteFlag(onResult).length > 0;
   if (lexicalMissed && sentinelCaught) {
     console.log(`\n  ${GREEN}The regexes caught nothing here. Everything above came from Moss.${OFF}`);
   }

@@ -489,7 +489,7 @@ export async function writeRedFlagFlag(
     period: { start: new Date().toISOString() },
     author: { display: 'Deprescribing review agent (Sentinel)' },
     extension: [{
-      url: 'https://example.org/fhir/StructureDefinition/red-flag-audit',
+      url: 'https://ycxmedplum.dev/fhir/StructureDefinition/red-flag-audit',
       valueString: detail,
     }],
   });
