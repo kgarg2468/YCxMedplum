@@ -73,6 +73,10 @@ reasoning behind every design decision is in
 
 ## Status: working end to end
 
+**☎️ Try it — call the live demo line: +1 (603) 457-8331** and role-play a patient
+(name a few medications, mumble one on purpose, answer "I don't know" to something).
+The agent is live 24/7; the pipeline runs when the reviewing server is up.
+
 Tested over a **real phone call**: telephony audio garbled drug names
 ("Jonipezil", "Burosemide") and the pipeline still resolved them, confirmed the
 cascade chain from the patient's own words, and wrote the FHIR resources to
