@@ -156,7 +156,7 @@ we read the whole shelf.
   improvising. Insurance discovery and COB are *not* in test mode; don't promise them.
 - **Medplum documents the exact FHIR pattern:** `CoverageEligibilityRequest` →
   Stedi → `CoverageEligibilityResponse` (medplum.com/docs/integration/stedi).
-- Our demo patient is 78 → the **CMS/Medicare mock** is the thematically perfect
+- Our demo patient is 83 (born 1943-04-12, per `src/fhir/seed.ts`) → the **CMS/Medicare mock** is the thematically perfect
   payer. MBI lookup even exists in test mode if we want a flourish.
 
 ### Moss — the integration is smaller than it looks

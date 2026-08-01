@@ -63,6 +63,8 @@ export interface Finding {
 export interface ReviewResult {
   meds: ResolvedMed[];
   findings: Finding[];
+  /** Symptoms as reported, for the concerns strip and console narratives. */
+  symptoms: ExtractedSymptom[];
   acbScore: number;
   acbContributors: { ingredient: string; score: number }[];
   redFlags: string[];

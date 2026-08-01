@@ -28,6 +28,62 @@ export const DEMO_CONDITIONS = [
   'Insomnia',
 ];
 
+/**
+ * ICD-10-CM codings for the seeded conditions. Each code verified against the
+ * CMS FY2026 code set (in effect 2026-08-01, HIPAA-valid). "mild" has no ICD-10
+ * axis for G30, so severity stays in the CodeableConcept text.
+ */
+const ICD10CM = 'http://hl7.org/fhir/sid/icd-10-cm';
+const CONDITION_CODINGS: Record<string, { code: string; display: string }> = {
+  'Alzheimer disease, mild':    { code: 'G30.9',  display: "Alzheimer's disease, unspecified" },
+  'Essential hypertension':     { code: 'I10',    display: 'Essential (primary) hypertension' },
+  'Gout':                       { code: 'M10.9',  display: 'Gout, unspecified' },
+  'Urge urinary incontinence':  { code: 'N39.41', display: 'Urge incontinence' },
+  'Insomnia':                   { code: 'G47.00', display: 'Insomnia, unspecified' },
+};
+
+export const DEMO_BIRTHDATE = '1943-04-12';
+
+/** Whole-year age on a given date (defaults to today). */
+export function ageOn(birthDate: string, on = new Date()): number {
+  // FHIR `date` is a plain calendar date with no timezone. `new Date('1943-04-12')`
+  // parses it as UTC midnight, so reading it back with local getters shifts it a day
+  // earlier anywhere west of UTC (including here) and ages the patient down for a
+  // 24h window around the birthday. Compare calendar parts as plain integers instead.
+  const [by, bm, bd] = birthDate.split('-').map(Number);
+  if (!by || !bm || !bd) return NaN;
+  const y = on.getFullYear(), m = on.getMonth() + 1, d = on.getDate();
+  let age = y - by;
+  if (m < bm || (m === bm && d < bd)) age--;
+  return age;
+}
+
+/** "Margaret Okonkwo, 83" — computed from the FHIR resource, never hardcoded. */
+export function patientLabel(p?: Patient): string {
+  const n = p?.name?.[0];
+  const name = n ? [n.given?.join(' '), n.family].filter(Boolean).join(' ') : 'Margaret Okonkwo';
+  return `${name}, ${ageOn(p?.birthDate ?? DEMO_BIRTHDATE)}`;
+}
+
+/**
+ * SYNTHETIC prescriber/practice per drug — the cross-practice fragmentation
+ * dimension. Real deployments would derive this from MedicationRequest.requester;
+ * for the demo it is labeled synthetic everywhere it renders.
+ */
+export const DEMO_PRESCRIBERS: Record<string, string> = {
+  amlodipine: 'Cardiology',
+  lisinopril: 'Cardiology',
+  furosemide: 'Primary care',
+  allopurinol: 'Primary care',
+  omeprazole: 'Primary care',
+  donepezil: 'Neurology',
+  oxybutynin: 'Urology',
+  lorazepam: 'Primary care',
+  benzonatate: 'Urgent care',
+  diphenhydramine: 'Self (OTC)',
+  senna: 'Self (OTC)',
+};
+
 /** Approximate durations of use, in weeks — drives the duration-gated PIM rules. */
 export const DEMO_DURATIONS: Record<string, number> = {
   lorazepam: 468,   // ~9 years
@@ -84,29 +140,60 @@ Agent: That's very helpful, Margaret. Let me read the list back to you.
 `.trim();
 
 export async function seedDemoPatient(medplum: MedplumClient) {
-  const patient = await medplum.createResource<Patient>({
+  // Idempotent: re-running the seed (or restarting the server) must not create
+  // another Margaret. Search by the stable demographics before creating.
+  const existing = await medplum.searchOne('Patient', `name=Okonkwo&birthdate=${DEMO_BIRTHDATE}`);
+  const patient = existing ?? await medplum.createResource<Patient>({
     resourceType: 'Patient',
     active: true,
     name: [{ given: ['Margaret'], family: 'Okonkwo' }],
     gender: 'female',
-    birthDate: '1943-04-12',   // 82 years old
+    birthDate: DEMO_BIRTHDATE,
     telecom: [{ system: 'phone', value: '555-0100' }],
     // Marks the record as synthetic so nobody mistakes it for PHI.
     meta: { tag: [{ system: 'https://example.org/tags', code: 'synthetic-demo' }] },
   });
 
-  const conditions: Condition[] = [];
-  for (const text of DEMO_CONDITIONS) {
-    conditions.push(await medplum.createResource<Condition>({
-      resourceType: 'Condition',
-      clinicalStatus: { coding: [{ code: 'active' }] },
-      subject: { reference: `Patient/${patient.id}` },
-      code: { text },
-    }));
-  }
+  // Conditions are reconciled on EVERY run, not just on first create. A patient
+  // seeded before the ICD-10 codings existed would otherwise keep bare `text`
+  // forever, because the idempotency check above returns the old record.
+  const conditions = await ensureConditions(medplum, patient);
 
-  console.log(`Seeded Patient/${patient.id} with ${conditions.length} conditions.`);
+  console.log(existing
+    ? `Reusing Patient/${patient.id} (idempotent seed), ${conditions.length} conditions reconciled.`
+    : `Seeded Patient/${patient.id} with ${conditions.length} conditions.`);
   return { patient, conditions };
+}
+
+/**
+ * Upsert the demo Conditions so each one carries its verified ICD-10-CM coding.
+ * Existing text-only Conditions are upgraded in place rather than duplicated.
+ */
+async function ensureConditions(medplum: MedplumClient, patient: Patient): Promise<Condition[]> {
+  const found = await medplum.searchResources('Condition', `subject=Patient/${patient.id}&_count=50`);
+  const out: Condition[] = [];
+
+  for (const text of DEMO_CONDITIONS) {
+    const coding = CONDITION_CODINGS[text];
+    const code = coding
+      ? { coding: [{ system: ICD10CM, code: coding.code, display: coding.display }], text }
+      : { text };
+    const clinicalStatus = {
+      coding: [{ system: 'http://terminology.hl7.org/CodeSystem/condition-clinical', code: 'active' }],
+    };
+
+    const match = found.find((c) => c.code?.text === text);
+    if (!match) {
+      out.push(await medplum.createResource<Condition>({
+        resourceType: 'Condition', clinicalStatus, subject: { reference: `Patient/${patient.id}` }, code,
+      }));
+    } else if (!match.code?.coding?.length && coding) {
+      out.push(await medplum.updateResource<Condition>({ ...match, clinicalStatus, code }));
+    } else {
+      out.push(match);
+    }
+  }
+  return out;
 }
 
 // Run directly: `npx tsx src/fhir/seed.ts`
