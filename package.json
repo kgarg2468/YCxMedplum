@@ -1,0 +1,27 @@
+{
+  "name": "deprescribe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "seed": "tsx --env-file-if-exists=.env src/fhir/seed.ts",
+    "demo": "tsx --env-file-if-exists=.env src/demo/run.ts",
+    "demo:fast": "tsx --env-file-if-exists=.env src/demo/run.ts --no-fhir",
+    "demo:full": "tsx --env-file-if-exists=.env src/demo/run.ts --explain",
+    "server": "tsx --env-file-if-exists=.env src/server.ts",
+    "test": "tsx src/test/engine.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.65.0",
+    "@medplum/core": "^4.0.0",
+    "@medplum/fhirtypes": "^4.0.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3"
+  }
+}
