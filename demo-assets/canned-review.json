@@ -1,0 +1,361 @@
+{
+  "at": "2026-07-31T19:46:59.250Z",
+  "source": "canned-demo",
+  "review": {
+    "meds": [
+      {
+        "spoken_as": "the donepezil, ten milligrams, once a day",
+        "name_guess": "donepezil",
+        "strength": "10 mg",
+        "frequency": "once a day",
+        "stated_indication": "my memory",
+        "otc": false,
+        "confidence": "high",
+        "rxcui": "135447",
+        "ingredient": "donepezil",
+        "unresolved": false
+      },
+      {
+        "spoken_as": "Oxybutynin. Five milligrams, three times a day",
+        "name_guess": "oxybutynin",
+        "strength": "5 mg",
+        "frequency": "three times a day",
+        "stated_indication": "for my bladder — I was having accidents, a lot of urgency",
+        "otc": false,
+        "confidence": "high",
+        "rxcui": "32675",
+        "ingredient": "oxybutynin",
+        "unresolved": false
+      },
+      {
+        "spoken_as": "Amlodipine, ten milligrams, for my blood pressure",
+        "name_guess": "amlodipine",
+        "strength": "10 mg",
+        "frequency": null,
+        "stated_indication": "for my blood pressure",
+        "otc": false,
+        "confidence": "high",
+        "rxcui": "17767",
+        "ingredient": "amlodipine",
+        "unresolved": false
+      },
+      {
+        "spoken_as": "A water pill. Furosemide I think. Twenty milligrams in the morning",
+        "name_guess": "furosemide",
+        "strength": "20 mg",
+        "frequency": "in the morning",
+        "stated_indication": "my ankles were swelling up something awful, so they gave me that",
+        "otc": false,
+        "confidence": "medium",
+        "rxcui": "4603",
+        "ingredient": "furosemide",
+        "unresolved": false
+      },
+      {
+        "spoken_as": "Allopurinol, a hundred milligrams",
+        "name_guess": "allopurinol",
+        "strength": "100 mg",
+        "frequency": null,
+        "stated_indication": "I got the gout in my big toe, terrible pain",
+        "otc": false,
+        "confidence": "high",
+        "rxcui": "519",
+        "ingredient": "allopurinol",
+        "unresolved": false
+      },
+      {
+        "spoken_as": "Lisinopril, ten milligrams. Also for the blood pressure",
+        "name_guess": "lisinopril",
+        "strength": "10 mg",
+        "frequency": null,
+        "stated_indication": "also for the blood pressure",
+        "otc": false,
+        "confidence": "high",
+        "rxcui": "29046",
+        "ingredient": "lisinopril",
+        "unresolved": false
+      },
+      {
+        "spoken_as": "Benzonatate, I take that when the cough gets bad",
+        "name_guess": "benzonatate",
+        "strength": null,
+        "frequency": "when the cough gets bad",
+        "stated_indication": "I've had this dry cough for, oh, two years now. Just a tickle in my throat that won't quit",
+        "otc": false,
+        "confidence": "high",
+        "rxcui": "18993",
+        "ingredient": "benzonatate",
+        "unresolved": false
+      },
+      {
+        "spoken_as": "Lorazepam. One milligram at bedtime",
+        "name_guess": "lorazepam",
+        "strength": "1 mg",
+        "frequency": "at bedtime",
+        "stated_indication": null,
+        "otc": false,
+        "confidence": "high",
+        "rxcui": "6470",
+        "ingredient": "lorazepam",
+        "unresolved": false
+      },
+      {
+        "spoken_as": "I take a Benadryl too, if the lorazepam isn't doing it",
+        "name_guess": "diphenhydramine",
+        "strength": null,
+        "frequency": null,
+        "stated_indication": "if the lorazepam isn't doing it",
+        "otc": true,
+        "confidence": "high",
+        "rxcui": "3498",
+        "ingredient": "diphenhydramine",
+        "unresolved": false
+      },
+      {
+        "spoken_as": "senna, for my bowels, I take that every day now",
+        "name_guess": "senna",
+        "strength": null,
+        "frequency": "every day",
+        "stated_indication": "for my bowels",
+        "otc": true,
+        "confidence": "high",
+        "rxcui": "36387",
+        "ingredient": "sennosides, usp",
+        "unresolved": false
+      },
+      {
+        "spoken_as": "omeprazole. Twenty milligrams",
+        "name_guess": "omeprazole",
+        "strength": "20 mg",
+        "frequency": null,
+        "stated_indication": null,
+        "otc": false,
+        "confidence": "high",
+        "rxcui": "7646",
+        "ingredient": "omeprazole",
+        "unresolved": false
+      }
+    ],
+    "findings": [
+      {
+        "kind": "cascade",
+        "implicated": [
+          "donepezil",
+          "oxybutynin"
+        ],
+        "severity": "high",
+        "label": "Cholinesterase inhibitor → antimuscarinic cascade",
+        "citation": "Gill et al., Arch Intern Med 2005; widely cited as the archetypal prescribing cascade",
+        "symptomConfirmed": true,
+        "linkingSymptom": "urgency"
+      },
+      {
+        "kind": "cascade",
+        "implicated": [
+          "amlodipine",
+          "furosemide"
+        ],
+        "severity": "high",
+        "label": "Dihydropyridine calcium channel blocker → diuretic cascade",
+        "citation": "Savage et al., JAMA Intern Med 2020 — CCB-induced oedema and diuretic prescribing cascade",
+        "symptomConfirmed": true,
+        "linkingSymptom": "swelling"
+      },
+      {
+        "kind": "duplicate",
+        "implicated": [
+          "lorazepam",
+          "diphenhydramine"
+        ],
+        "severity": "high",
+        "label": "Two or more sedative-hypnotics (2 agents)",
+        "citation": "STOPP/START v3 — duplicate drug class prescribing; additive CNS depression"
+      },
+      {
+        "kind": "duplicate",
+        "implicated": [
+          "oxybutynin",
+          "diphenhydramine"
+        ],
+        "severity": "high",
+        "label": "Two or more anticholinergic agents (2 agents)",
+        "citation": "STOPP/START v3 — additive anticholinergic burden"
+      },
+      {
+        "kind": "pim",
+        "implicated": [
+          "lorazepam"
+        ],
+        "severity": "high",
+        "label": "Benzodiazepine in older adult",
+        "citation": "AGS Beers 2023 — avoid benzodiazepines for insomnia, agitation, or delirium"
+      },
+      {
+        "kind": "pim",
+        "implicated": [
+          "diphenhydramine"
+        ],
+        "severity": "high",
+        "label": "First-generation antihistamine",
+        "citation": "AGS Beers 2023 — avoid first-generation antihistamines"
+      },
+      {
+        "kind": "pim",
+        "implicated": [
+          "oxybutynin"
+        ],
+        "severity": "high",
+        "label": "Antimuscarinic for urinary incontinence",
+        "citation": "AGS Beers 2023 — use with caution; avoid oral oxybutynin in dementia"
+      },
+      {
+        "kind": "anticholinergic",
+        "implicated": [
+          "oxybutynin",
+          "diphenhydramine",
+          "furosemide",
+          "lorazepam"
+        ],
+        "severity": "high",
+        "label": "Cumulative anticholinergic burden score 8",
+        "citation": "Anticholinergic Cognitive Burden scale; ACB ≥ 3 associated with cognitive decline and falls"
+      },
+      {
+        "kind": "cascade",
+        "implicated": [
+          "furosemide",
+          "allopurinol"
+        ],
+        "severity": "moderate",
+        "label": "Diuretic → gout therapy cascade",
+        "citation": "Choi et al., BMJ 2012 — diuretic use and risk of incident gout",
+        "symptomConfirmed": true,
+        "linkingSymptom": "gout"
+      },
+      {
+        "kind": "cascade",
+        "implicated": [
+          "lisinopril",
+          "benzonatate"
+        ],
+        "severity": "moderate",
+        "label": "ACE inhibitor → antitussive cascade",
+        "citation": "Dicpinigaitis, Chest 2006 — ACE inhibitor-induced cough",
+        "symptomConfirmed": true,
+        "linkingSymptom": "cough"
+      },
+      {
+        "kind": "pim",
+        "implicated": [
+          "omeprazole"
+        ],
+        "severity": "moderate",
+        "label": "Proton pump inhibitor beyond 8 weeks without clear indication",
+        "citation": "AGS Beers 2023 — avoid scheduled use > 8 weeks without justification"
+      },
+      {
+        "kind": "no-indication",
+        "implicated": [
+          "lorazepam"
+        ],
+        "severity": "moderate",
+        "label": "No indication stated for lorazepam",
+        "citation": "STOPP/START v3 — any drug prescribed without an evidence-based clinical indication"
+      },
+      {
+        "kind": "no-indication",
+        "implicated": [
+          "omeprazole"
+        ],
+        "severity": "moderate",
+        "label": "No indication stated for omeprazole",
+        "citation": "STOPP/START v3 — any drug prescribed without an evidence-based clinical indication"
+      }
+    ],
+    "acbScore": 8,
+    "acbContributors": [
+      {
+        "ingredient": "oxybutynin",
+        "score": 3
+      },
+      {
+        "ingredient": "diphenhydramine",
+        "score": 3
+      },
+      {
+        "ingredient": "furosemide",
+        "score": 1
+      },
+      {
+        "ingredient": "lorazepam",
+        "score": 1
+      }
+    ],
+    "redFlags": [],
+    "patientGoals": [
+      "The sleeping pill. I don't think it even works anymore, and I hate feeling like this in the mornings. I just want to feel clear again."
+    ],
+    "unresolvedCount": 0
+  },
+  "chains": [
+    [
+      "amlodipine",
+      "furosemide",
+      "allopurinol"
+    ]
+  ],
+  "objection": "Abruptly layering a benzodiazepine taper simultaneously with discontinuation of diphenhydramine (also sedating/anticholinergic) risks unmasking withdrawal-related insomnia, anxiety, and rebound symptoms without a clear stabilization sequence, potentially causing the patient to feel worse before better and undermining trust in the plan. The plan should explicitly sequence which agent is tapered first (typically benzodiazepine slow taper while holding other CNS-active drugs steady) to avoid confounding withdrawal symptoms with cascade reversal effects.",
+  "taper": {
+    "drug": "lorazepam",
+    "steps": [
+      {
+        "week": 0,
+        "dose": "1 mg at bedtime",
+        "note": "Baseline dose. Begin CBT-I/sleep hygiene counselling before or alongside taper initiation; do not change dose yet."
+      },
+      {
+        "week": 2,
+        "dose": "0.75 mg at bedtime",
+        "note": "25% reduction from starting dose. Achievable using a 0.5 mg tablet plus half of a 1 mg tablet, or three 0.25 mg quarter-tablets if available."
+      },
+      {
+        "week": 4,
+        "dose": "0.5 mg at bedtime",
+        "note": "25% reduction (now at 50% of starting dose - the threshold for switching taper method). Standard 0.5 mg tablet strength, no splitting required."
+      },
+      {
+        "week": 6,
+        "dose": "0.375 mg at bedtime",
+        "note": "Below 50% of starting dose - now applying 12.5% reduction steps of the original dose per algorithm. Achievable by quartering a 0.5 mg tablet (three quarters) or via oral liquid formulation (e.g., 2 mg/mL) for accuracy."
+      },
+      {
+        "week": 8,
+        "dose": "0.25 mg at bedtime",
+        "note": "12.5% reduction step. Achievable as half of a 0.5 mg tablet."
+      },
+      {
+        "week": 10,
+        "dose": "0.125 mg at bedtime",
+        "note": "12.5% reduction step. Achievable as one quarter of a 0.5 mg tablet, or preferably via liquid formulation given the small quantity involved."
+      },
+      {
+        "week": 12,
+        "dose": "0.125 mg on most nights, with 1-2 planned drug-free nights per week",
+        "note": "Per algorithm guidance, at the lowest achievable tablet dose switch from further splitting to planned drug-free nights rather than attempting doses below 0.125 mg."
+      },
+      {
+        "week": 14,
+        "dose": "0.125 mg with increasing number of drug-free nights (progressing toward 0)",
+        "note": "Gradually increase drug-free nights every 1-2 weeks as tolerated until fully off. Given 9 years of use, this final phase may need to extend over additional weeks to months - do not rush; slow further if withdrawal symptoms emerge. Never stop abruptly from any dose."
+      }
+    ]
+  },
+  "patientId": "966b3619-73b2-4895-b75b-f0ad287119af",
+  "written": {
+    "meds": 11,
+    "flags": 6,
+    "cascades": 4,
+    "goals": 1,
+    "risk": true
+  }
+}
