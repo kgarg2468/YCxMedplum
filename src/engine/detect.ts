@@ -232,6 +232,7 @@ export function runReview(input: {
   return {
     meds,
     findings,
+    symptoms,
     acbScore: acb.total,
     acbContributors: acb.contributors,
     redFlags,

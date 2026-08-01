@@ -21,8 +21,8 @@ import { extractWithRetry } from './llm/extract.js';
 import { resolveAll } from './rxnav.js';
 import { runReview, detectCascadeChains } from './engine/detect.js';
 import { checkRedFlags } from './voice/prompt.js';
-import { persistReview, summarizeWritten, writeRedFlagFlag } from './fhir/writers.js';
-import { DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient } from './fhir/seed.js';
+import { persistReview, summarizeWritten, writeRedFlagTask, writeRedFlagFlag } from './fhir/writers.js';
+import { DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient, patientLabel } from './fhir/seed.js';
 import { renderReviewHtml, type ReviewSnapshot } from './ui/panel.js';
 import { runSentinel } from './moss/redflags.js';
 import { warmSentinel } from './moss/session.js';
@@ -221,7 +221,19 @@ async function screen(callId: string, text: string) {
   sentinelLog.set(callId, log);
 
   if (!res.escalated.length) return;
-  console.warn('⚠ RED FLAG:', res.escalated.join('; '));
+
+  // The actuator, unchanged from main and deliberately still the first thing that
+  // happens: it logs, and it creates the urgent Task a clinician queue picks up. What
+  // changed is only its INPUT. It used to be handed `checkRedFlags(transcript)`; it is
+  // now handed `res.escalated`, which is that same set unioned with whatever the
+  // verifier confirmed. With MOSS_MODE unset the two are identical, so this is a pure
+  // superset and the Task inherits the recall measured at 16/18 on held-out vernacular.
+  //
+  // An `anon:` key means the payload carried no call.id. Pass undefined rather than the
+  // synthetic key: main's `escalatedCalls` has no eviction, so feeding it a fresh uuid
+  // per turn would leak, and `undefined` already means "cannot identify the call, so
+  // escalate rather than dedupe", which is the behaviour we want anyway.
+  await escalateRedFlags(res.escalated, callId.startsWith('anon:') ? undefined : callId);
 
   // Rule 1: only a class the verifier actually checked and confirmed reaches a chart.
   const confirmed = res.verdicts.filter((v) => v.verifierRan && v.confirmed);
@@ -301,11 +313,70 @@ async function writeRedFlag(
   }
 }
 
+// ─── Urgent escalation to a clinician (FHIR Task) ───────────────────────────
+//
+// This is the ACTUATOR, and it is fed by screenTurn above rather than by
+// checkRedFlags directly. The set it receives is `SentinelResult.escalated`, which
+// is the six regexes unioned with whatever the verifier confirmed, so with
+// MOSS_MODE unset it is byte-identical to the regex output and this path behaves
+// exactly as it did before Sentinel existed.
+//
+// Two resources, deliberately, because they answer different questions. The Task is
+// "somebody act on this now", one per call, and it fires on anything that escalated.
+// The Flag written above is "here is the auditable basis", one per verifier-
+// confirmed class, carrying the patient's verbatim words. A regex false positive
+// ("No chest pain, never") therefore still raises the Task it always did, but does
+// not put an evidence-bearing Flag on the chart.
+// One urgent Task per call, even though red flags are checked every turn.
+const escalatedCalls = new Set<string>();
+
+/**
+ * Escalate red flags NOW — at the turn they were detected, not at end of call.
+ * Creates an urgent FHIR Task a clinician queue can pick up. Returns true if the
+ * Task was written (false when Medplum credentials are absent).
+ */
+async function escalateRedFlags(flags: string[], callId?: string): Promise<boolean> {
+  console.warn('⚠ RED FLAG:', flags.join('; '));
+
+  // Dedupe only when we can actually identify the call. Bucketing every
+  // id-less turn under one key would let the first such escalation suppress
+  // every later one, silently. On a safety path a duplicate Task is cheap and
+  // a missed one is not, so when in doubt we escalate.
+  if (callId) {
+    if (escalatedCalls.has(callId)) return true;
+    // Claim the id BEFORE awaiting. The per-turn webhook fires this without
+    // awaiting, so marking it only after the write completes lets two turns of
+    // the same call race past the check and create two urgent Tasks.
+    escalatedCalls.add(callId);
+  }
+
+  try {
+    const ctx = await getMedplum();
+    if (!ctx) {
+      if (callId) escalatedCalls.delete(callId);
+      return false;
+    }
+    const task = await writeRedFlagTask(ctx.medplum, ctx.patient, flags);
+    console.warn(`→ Urgent Task/${task.id} created for clinician`);
+    return true;
+  } catch (err) {
+    // Release the claim so a transient failure can still be escalated later.
+    if (callId) escalatedCalls.delete(callId);
+    console.error('[redflag] escalation failed:', err);
+    return false;
+  }
+}
+
 async function runPipeline(transcript: string, callId: string | undefined, via: string) {
   if (callId) {
     if (processedCalls.has(callId)) return;
     processedCalls.add(callId);
   }
+  // Retry is only safe up to the point where we start writing to Medplum. The
+  // writers are create-only, so re-running after a partial write would duplicate
+  // every resource on the patient's chart.
+  let wroteToMedplum = false;
+
   try {
     console.log(`\n[call ended, via ${via}] transcript: ${transcript.length} chars — running pipeline`);
 
@@ -343,14 +414,25 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
     // The panel shows what was proposed, what the verifier ruled, and what escalated.
     if (screened?.length) snapshot.sentinel = screened;
 
+    // End-of-call safety net: if the per-turn webhook path never fired (e.g. the
+    // poller found this call), the red flags still get their urgent Task here.
+    // `escalatedCalls` dedupes against the per-turn path, so a call that already
+    // escalated mid-review does not get a second Task.
+    let taskWritten = false;
+    if (review.redFlags.length) {
+      taskWritten = await escalateRedFlags(review.redFlags, callId);
+    }
+
     const ctx = await getMedplum();
     if (ctx) {
+      wroteToMedplum = true;
       const written = await persistReview(ctx.medplum, ctx.patient, review);
       snapshot.patientId = ctx.patient.id;
+      snapshot.patientLabel = patientLabel(ctx.patient);
       snapshot.written = {
         meds: written.meds.length, flags: written.flags.length,
         cascades: written.cascades.length, goals: written.goals.length,
-        risk: Boolean(written.risk),
+        risk: Boolean(written.risk), task: taskWritten,
         resources: summarizeWritten(written),
       };
       console.log(
@@ -363,9 +445,19 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
     saveSnapshot(snapshot);
     console.log('→ Review panel updated: http://localhost:3000/review');
   } catch (err) {
-    console.error('[pipeline] failed:', err);
+    // Un-mark the call so the poller can retry a transient failure (RxNav
+    // timeout, Anthropic 429). Only when nothing was written yet: past that
+    // point a retry would duplicate resources rather than repair anything.
+    const retryable = Boolean(callId) && !wroteToMedplum;
+    if (retryable) processedCalls.delete(callId!);
+    console.error(
+      `[pipeline] failed (${retryable ? 'will retry via poller' : 'not retrying, writes already started'}):`,
+      err,
+    );
   } finally {
     // The snapshot has the screening record now; the per-call buffers are dead weight.
+    // Not on the retryable path: a poller retry still wants the screening log, but it
+    // re-screens nothing, so dropping the buffers here is safe either way.
     if (callId) forgetCall(callId);
   }
 }
@@ -388,8 +480,12 @@ app.post('/vapi', async (req, res) => {
     // which contradicts "the regexes always run first and unconditionally". Only skip
     // what is explicitly known to be an interim partial. A duplicate screen on a
     // re-sent final costs one verifier call and is deduped by class downstream; a
-    // missed final costs the Flag.
+    // missed final costs the Task.
     if (msg.transcriptType === 'partial') return;
+    // screenTurn runs checkRedFlags first and unconditionally, then unions in whatever
+    // Sentinel confirms, and hands the result to escalateRedFlags. With MOSS_MODE unset
+    // that set is exactly `checkRedFlags(transcript)`, so this path is behaviourally
+    // identical to the two lines it replaces.
     await screenTurn(callKey(msg.call?.id), msg.transcript ?? '');
     return;
   }

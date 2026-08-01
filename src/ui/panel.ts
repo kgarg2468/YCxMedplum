@@ -27,8 +27,12 @@ export interface ReviewSnapshot {
   patientId?: string;
   /** One entry per screened turn. Absent when Sentinel is off or never ran. */
   sentinel?: SentinelResult[];
+  /** "Margaret Okonkwo, 83" — computed from the FHIR Patient, never hardcoded. */
+  patientLabel?: string;
   written?: {
     meds: number; flags: number; cascades: number; goals: number; risk: boolean;
+    /** True when a red flag produced an urgent Task. */
+    task?: boolean;
     /** Per-resource detail incl. the note/comment text the console UI buries. */
     resources?: { type: string; id: string; label: string; note?: string }[];
   };
@@ -51,6 +55,12 @@ const KIND_LABEL: Record<Finding['kind'], string> = {
   duplicate: 'Therapeutic duplication',
 };
 
+/** Spelled numbers read better than numerals in a headline. Falls back to digits. */
+const WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten'];
+const spell = (n: number) => WORDS[n] ?? String(n);
+/** "One medication" / "Three medications". */
+const plural = (n: number, word: string) => `${spell(n)} ${word}${n === 1 ? '' : 's'}`;
+
 /** trigger —(linking symptom)→ treater, for cascade cards. */
 function cascadeFlow(f: Finding): string {
   const [trigger, treater] = f.implicated;
@@ -70,7 +80,7 @@ function findingCard(f: Finding): string {
   const confirmed = f.kind === 'cascade'
     ? (f.symptomConfirmed
         ? `<div class="confirm yes">&#10003; Patient reported the linking symptom</div>`
-        : `<div class="confirm no">&#9675; Structural only — linking symptom not reported</div>`)
+        : `<div class="confirm no">&#9675; Structural only, linking symptom not reported</div>`)
     : '';
   const body = f.kind === 'cascade'
     ? cascadeFlow(f)
@@ -168,7 +178,7 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Deprescribe — medication review</title>
+<title>Deprescribe, medication review</title>
 <script>
   // Reload only when a NEW review lands — a blind meta-refresh resets scroll
   // position every few seconds, which is unusable mid-presentation.
@@ -202,17 +212,20 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--page); color: var(--ink);
-    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    font: 17px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-  main { max-width: 1080px; margin: 0 auto; padding: 40px 28px 80px; }
+  main { max-width: 1140px; margin: 0 auto; padding: 28px 28px 80px; }
 
-  /* ── Header ─────────────────────────────────────────── */
-  .brand { display: flex; align-items: baseline; gap: 10px; }
+  /* ── Top bar: identity only. The cascade owns the first screen. ─── */
+  .topbar {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 18px;
+    padding-bottom: 16px; border-bottom: 1px solid var(--hairline);
+  }
   .wordmark { font-size: 15px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
-  .wordmark .minus { color: var(--critical); font-weight: 800; }
-  h1 { font-size: 30px; margin: 6px 0 0; letter-spacing: -0.01em; }
-  .sub { color: var(--ink-2); margin: 8px 0 0; font-size: 15.5px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  .wordmark .minus { color: var(--critical); font-weight: 800; margin-left: 2px; }
+  .sub { color: var(--ink-2); font-size: 15px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  .sub .who { font-weight: 600; color: var(--ink); }
   .sub a { color: inherit; }
   .pill {
     display: inline-block; font-size: 12.5px; font-weight: 600; letter-spacing: .02em;
@@ -236,26 +249,46 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   .meter .fill { position: absolute; inset: 0 auto 0 0; width: var(--meter-fill); background: var(--meter-color); border-radius: 4px; }
   .meter .tick { position: absolute; top: -3px; bottom: -3px; left: var(--meter-tick); width: 2px; background: var(--ink-2); border-radius: 1px; opacity: .55; }
 
-  /* ── Hero: the chained cascade ──────────────────────── */
+  /* ── Hero: the chained cascade. First thing on the projector. ──── */
   .hero {
-    margin-top: 28px; border-radius: 16px; padding: 26px 28px 24px;
+    margin-top: 24px; border-radius: 16px; padding: 34px 36px 32px;
     background: color-mix(in srgb, var(--critical) 6%, var(--surface));
     border: 1px solid color-mix(in srgb, var(--critical) 30%, var(--border));
     box-shadow: var(--shadow);
   }
-  .hero .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-    color: color-mix(in srgb, var(--critical) 80%, var(--ink)); }
-  .diagram { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px 0; margin-top: 16px; }
-  .drug {
-    background: var(--surface); border: 1px solid color-mix(in srgb, var(--critical) 40%, var(--border));
-    border-radius: 12px; padding: 12px 18px 10px; min-width: 150px;
+  /* Clean result reads as a finding, not as an error state. */
+  .hero.hero-clear {
+    background: color-mix(in srgb, var(--good) 6%, var(--surface));
+    border-color: color-mix(in srgb, var(--good) 30%, var(--border));
   }
-  .drug .name { font-size: 21px; font-weight: 650; letter-spacing: -0.01em; }
-  .drug .why { font-size: 12.5px; color: var(--muted); margin-top: 2px; max-width: 200px; }
-  .arrow-col { display: flex; align-items: center; padding: 0 14px;
-    color: color-mix(in srgb, var(--critical) 75%, var(--ink)); font-size: 26px; }
-  .hero .caption { margin-top: 14px; color: var(--ink-2); font-size: 15.5px; }
-  .hero .caption strong { color: var(--ink); }
+  /* Second and later chains render as h2 for heading semantics, so this must
+     override the global h2 rule (uppercase, 14px, flex) as well as h1. */
+  .hero-claim {
+    font-size: clamp(30px, 3.4vw, 46px); font-weight: 680; line-height: 1.08;
+    letter-spacing: -0.022em; margin: 0; color: var(--ink);
+    text-transform: none; display: block;
+  }
+  .diagram { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px 0; margin-top: 26px; }
+  .drug {
+    display: flex; flex-direction: column; justify-content: center;
+    background: var(--surface); border: 1px solid color-mix(in srgb, var(--critical) 40%, var(--border));
+    border-radius: 12px; padding: 16px 22px 14px; min-width: 172px;
+  }
+  .drug .name { font-size: clamp(22px, 2vw, 30px); font-weight: 650; letter-spacing: -0.015em; }
+  .drug .why { font-size: 13.5px; color: var(--muted); margin-top: 4px; max-width: 210px; line-height: 1.4; }
+  .arrow-col { display: flex; align-items: center; padding: 0 16px;
+    color: color-mix(in srgb, var(--critical) 75%, var(--ink)); font-size: 30px; }
+  .hero .caption { margin: 22px 0 0; color: var(--ink-2); font-size: 16.5px; max-width: 68ch; line-height: 1.5; }
+
+  /* Below ~1000px a 3-drug chain wraps and can strand an arrow at the end of a
+     line. Stack instead, arrows pointing down. Guards an unmaximized window on
+     the projector, which is how this actually breaks in a venue. */
+  @media (max-width: 1000px) {
+    .diagram { flex-direction: column; align-items: stretch; gap: 0; }
+    .drug { min-width: 0; }
+    .arrow-col { padding: 6px 0 6px 26px; font-size: 24px; transform: rotate(90deg);
+      transform-origin: 18px center; height: 34px; }
+  }
 
   .redflag {
     margin-top: 20px; border-radius: 14px; padding: 18px 22px;
@@ -363,41 +396,79 @@ function renderBody(snap: ReviewSnapshot): string {
         <tr>
           <td><a href="https://app.medplum.com/${r.type}/${r.id}" target="_blank">${r.type}</a></td>
           <td>${esc(r.label)}</td>
-          <td class="muted">${r.note ? esc(r.note) : '—'}</td>
+          <td class="muted">${r.note ? esc(r.note) : '&mdash;'}</td>
         </tr>`).join('')}
       </tbody>
     </table>` : ''}
-    <div class="citation">DetectedIssue carries <code>implicated</code> in causal order. All review resources are
-    <em>preliminary / draft</em> — nothing is final without a clinician.</div>
+    <div class="citation">DetectedIssue carries <code>implicated</code> in causal order. Recommendation resources are
+    written as <em>preliminary / draft / proposed</em> (DetectedIssue&nbsp;preliminary &middot; RiskAssessment&nbsp;preliminary &middot;
+    CarePlan&nbsp;draft &middot; Communication&nbsp;preparation &middot; Goal&nbsp;proposed). A clinician confirms before anything becomes final.</div>
+
   </div>` : '';
 
+  // The chained cascade is the one un-fakeable moment in the demo. It leads the
+  // page so it is on the projector within the first seconds, before any stat
+  // tile. Everything below it is supporting evidence.
+  const hero = snap.chains.length ? snap.chains.map((chain, i) => `
+  <section class="hero">
+    ${/* One h1 per document: the first chain owns it, any others are h2. */ ''}
+    <${i === 0 ? 'h1' : 'h2'} class="hero-claim">${plural(chain.length, 'medication')}. One root cause.</${i === 0 ? 'h1' : 'h2'}>
+    <div class="diagram">
+      ${chain.map((drug, i) => `
+        ${i > 0 ? '<span class="arrow-col" aria-hidden="true">&#10230;</span>' : ''}
+        <span class="drug">
+          <span class="name">${esc(drug)}</span>
+          ${whyFor(drug) ? `<span class="why">&ldquo;${esc(whyFor(drug))}&rdquo;</span>` : ''}
+        </span>`).join('')}
+    </div>
+    <p class="caption">Each drug after the first was prescribed for a symptom the one before it caused.
+    Found by asking why each was started, not by checking for interactions.</p>
+  </section>`).join('') : `
+  <section class="hero hero-clear">
+    <h1 class="hero-claim">No prescribing cascade detected.</h1>
+    <p class="caption">The engine ran the full table and found no drug being used to treat
+    another drug's side effect. A clean result is a result.</p>
+  </section>`;
+
   return `
-  <div class="brand"><span class="wordmark">Deprescribe<span class="minus"> &minus;</span></span></div>
-  <h1>Pre-visit medication review</h1>
-  <p class="sub">
-    <span>Margaret Okonkwo, 82</span>
-    <span class="pill">synthetic demo</span>
-    <span class="pill${snap.source === 'live-call' ? ' live' : ''}">${snap.source === 'live-call' ? '&#9679; live call' : 'canned demo'}</span>
-    <span class="muted">${esc(when)}</span>
-    ${consoleLink}
-  </p>
+  <header class="topbar">
+    <span class="wordmark">Deprescribe<span class="minus">&minus;</span></span>
+    <span class="sub">
+      <span class="who">${esc(snap.patientLabel ?? 'Synthetic demo patient')}</span>
+      <span class="pill">synthetic demo</span>
+      <span class="pill${snap.source === 'live-call' ? ' live' : ''}">${snap.source === 'live-call' ? '&#9679; live call' : 'canned demo'}</span>
+      <span class="muted">${esc(when)}</span>
+      ${consoleLink}
+    </span>
+  </header>
+
+  ${hero}
+
+  ${r.redFlags.length ? `
+  <div class="redflag">
+    <strong>&#9888; Red flags, ${snap.written?.task
+      ? 'urgent FHIR Task created for clinician'
+      : 'immediate clinician attention required'}:</strong> ${r.redFlags.map(esc).join('; ')}
+  </div>` : ''}
 
   <div class="tiles">
     <div class="tile" style="--meter-color:${acbColor}; --meter-fill:${acbFill}%; --meter-tick:${acbTick}%">
       <div class="label">Anticholinergic burden</div>
       <div class="value">${r.acbScore}</div>
       <div class="meter"><span class="fill"></span><span class="tick"></span></div>
-      <div class="note">&ge; 3 is clinically significant &middot; ${r.acbContributors.map((c) => `${esc(c.ingredient)} ${c.score}`).join(', ') || 'no contributors'}</div>
+      <div class="note">&ge; 3 is clinically significant. ${r.acbContributors.map((c) => `${esc(c.ingredient)} ${c.score}`).join(', ') || 'No contributors'}</div>
     </div>
     <div class="tile">
       <div class="label">Findings</div>
       <div class="value">${r.findings.length}</div>
-      <div class="note">${r.findings.filter((f) => f.severity === 'high').length} high severity, every one cited</div>
+      <div class="note">${r.findings.length
+        ? `${r.findings.filter((f) => f.severity === 'high').length} high severity, every one cited`
+        : 'Nothing met a rule in the tables'}</div>
     </div>
     <div class="tile">
       <div class="label">Medications</div>
       <div class="value">${r.meds.length}</div>
-      <div class="note">${r.unresolvedCount ? `${r.unresolvedCount} unresolved &rarr; clinician review` : 'all resolved to RxNorm'}</div>
+      <div class="note">${r.unresolvedCount ? `${r.unresolvedCount} unresolved, sent for clinician review` : 'All resolved to RxNorm'}</div>
     </div>
     <div class="tile">
       <div class="label">Prescribing cascades</div>
@@ -406,32 +477,23 @@ function renderBody(snap: ReviewSnapshot): string {
     </div>
   </div>
 
-  ${snap.chains.map((chain) => `
-  <div class="hero">
-    <div class="eyebrow">Chained prescribing cascade</div>
-    <div class="diagram">
-      ${chain.map((drug, i) => `
-        ${i > 0 ? '<span class="arrow-col">&#10230;</span>' : ''}
-        <span class="drug">
-          <div class="name">${esc(drug)}</div>
-          ${whyFor(drug) ? `<div class="why">&ldquo;${esc(whyFor(drug))}&rdquo;</div>` : ''}
-        </span>`).join('')}
-    </div>
-    <div class="caption"><strong>${chain.length - 1} of these ${chain.length} drugs exist only to treat side effects of the one before it.</strong>
-    Each was prescribed for a symptom the previous drug caused.</div>
-  </div>`).join('')}
-
-  ${r.redFlags.length ? `
-  <div class="redflag">
-    <strong>&#9888; Red flags, flagged for clinician follow-up:</strong> ${r.redFlags.map(esc).join('; ')}
-    <div class="citation">The voice agent is instructed to end the review and say a clinician is being notified.
-    Escalation means a record a human has to pick up: nothing is paged automatically.</div>
-  </div>` : ''}
-
+  <!-- The cascade hero and the red-flag banner both moved above the tiles in the
+       cascade-first redesign, so only the Sentinel audit trail lands here. It sits
+       BELOW the tiles on purpose: the banner above says what escalated, and this says
+       how it was caught and what the verifier was asked, which is the detail a
+       clinician wants second, not first. -->
   ${snap.sentinel?.length ? sentinelSection(snap.sentinel) : ''}
 
+
   <h2>Findings <span class="count">${r.findings.length}</span></h2>
-  ${r.findings.map(findingCard).join('')}
+  ${r.findings.length
+    ? r.findings.map(findingCard).join('')
+    : `<div class="card empty">
+        <p>No findings. Every medication was checked against the Beers, STOPP/START,
+        anticholinergic, duplication and cascade tables, and none matched.</p>
+        <p class="muted">The engine reports what the tables contain. It does not invent findings
+        to fill a screen.</p>
+      </div>`}
 
   <h2>Medications, in the patient's own words <span class="count">${r.meds.length}</span></h2>
   <div class="card">
@@ -458,7 +520,7 @@ function renderBody(snap: ReviewSnapshot): string {
   </div>` : ''}
 
   ${snap.taper?.steps?.length ? `
-  <h2>Draft taper — ${esc(snap.taper.drug)}</h2>
+  <h2>Draft taper, ${esc(snap.taper.drug)}</h2>
   <div class="card">
     <table>
       <thead><tr><th style="width:70px">Week</th><th style="width:180px">Dose</th><th>Note</th></tr></thead>
@@ -466,11 +528,11 @@ function renderBody(snap: ReviewSnapshot): string {
         <tr><td class="num">${s.week}</td><td>${esc(s.dose)}</td><td class="muted">${esc(s.note)}</td></tr>`).join('')}
       </tbody>
     </table>
-    <div class="citation">Instantiated from the published deprescribing.org algorithm. Draft CarePlan — requires clinician sign-off.</div>
+    <div class="citation">Instantiated from the published deprescribing.org algorithm. Draft CarePlan, requires clinician sign-off.</div>
   </div>` : ''}
 
   ${snap.objection ? `
-  <h2>Reviewer objection — peer review</h2>
+  <h2>Reviewer objection, peer review</h2>
   <div class="card">
     <p class="explain" style="margin:0">${esc(snap.objection)}</p>
     <div class="citation">Generated by an adversarial reviewer agent before any clinician sees the plan.</div>
@@ -479,9 +541,9 @@ function renderBody(snap: ReviewSnapshot): string {
   ${written}
 
   <div class="foot">
-    Detection is deterministic — a citation-backed table lookup with zero LLM calls; the model
+    Detection is deterministic: a citation-backed table lookup with zero LLM calls. The model
     never decides what is clinically wrong. Ranked options with visible citations, nothing
-    time-critical, all resources preliminary/draft pending clinician review (FDA Non-Device CDS posture).
+    time-critical, recommendation resources preliminary/draft pending clinician review (FDA Non-Device CDS posture).
     Synthetic data only.
   </div>`;
 }
