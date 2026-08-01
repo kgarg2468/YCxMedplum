@@ -242,6 +242,52 @@ export async function writePrescriberMessage(
   });
 }
 
+/**
+ * Flatten what persistReview wrote into per-resource rows for the review panel —
+ * including the note/comment text, which the Medplum console UI tends to bury.
+ */
+export function summarizeWritten(w: {
+  meds: MedicationStatement[]; flags: Flag[]; risk: RiskAssessment | null;
+  cascades: DetectedIssue[]; goals: Goal[];
+}): { type: string; id: string; label: string; note?: string }[] {
+  const rows: { type: string; id: string; label: string; note?: string }[] = [];
+  for (const m of w.meds) {
+    rows.push({
+      type: 'MedicationStatement', id: m.id!,
+      label: m.medicationCodeableConcept?.coding?.[0]?.display ?? m.medicationCodeableConcept?.text ?? '',
+      note: m.note?.map((n) => n.text).filter(Boolean).join(' · '),
+    });
+  }
+  for (const f of w.flags) {
+    rows.push({
+      type: 'Flag', id: f.id!, label: f.code?.text ?? '',
+      note: f.extension?.find((e) => e.url.endsWith('/citation'))?.valueString,
+    });
+  }
+  for (const d of w.cascades) {
+    rows.push({
+      type: 'DetectedIssue', id: d.id!, label: d.detail ?? 'Prescribing cascade',
+      note: [
+        d.evidence?.[0]?.code?.[0]?.text,
+        d.mitigation?.[0]?.action?.text ? `Mitigation: ${d.mitigation[0].action.text}` : undefined,
+      ].filter(Boolean).join(' · '),
+    });
+  }
+  if (w.risk) {
+    rows.push({
+      type: 'RiskAssessment', id: w.risk.id!, label: w.risk.code?.text ?? 'Risk assessment',
+      note: w.risk.prediction?.[0]?.rationale,
+    });
+  }
+  for (const g of w.goals) {
+    rows.push({
+      type: 'Goal', id: g.id!, label: g.description?.text ?? '',
+      note: 'expressedBy = the patient',
+    });
+  }
+  return rows;
+}
+
 /** Convenience: write everything and return a summary for the demo UI. */
 export async function persistReview(
   medplum: MedplumClient,

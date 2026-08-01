@@ -20,7 +20,7 @@ import { extractWithRetry } from './llm/extract.js';
 import { resolveAll } from './rxnav.js';
 import { runReview, detectCascadeChains } from './engine/detect.js';
 import { checkRedFlags } from './voice/prompt.js';
-import { persistReview } from './fhir/writers.js';
+import { persistReview, summarizeWritten } from './fhir/writers.js';
 import { DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient } from './fhir/seed.js';
 import { renderReviewHtml, type ReviewSnapshot } from './ui/panel.js';
 
@@ -120,6 +120,7 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
         meds: written.meds.length, flags: written.flags.length,
         cascades: written.cascades.length, goals: written.goals.length,
         risk: Boolean(written.risk),
+        resources: summarizeWritten(written),
       };
       console.log(
         `→ Medplum: MedicationStatement × ${written.meds.length}, Flag × ${written.flags.length}, ` +

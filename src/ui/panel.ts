@@ -23,7 +23,11 @@ export interface ReviewSnapshot {
   objection?: string;
   taper?: { drug: string; steps: { week: number; dose: string; note: string }[] } | null;
   patientId?: string;
-  written?: { meds: number; flags: number; cascades: number; goals: number; risk: boolean };
+  written?: {
+    meds: number; flags: number; cascades: number; goals: number; risk: boolean;
+    /** Per-resource detail incl. the note/comment text the console UI buries. */
+    resources?: { type: string; id: string; label: string; note?: string }[];
+  };
 }
 
 const esc = (s: string) =>
@@ -281,6 +285,18 @@ function renderBody(snap: ReviewSnapshot): string {
   <div class="card">
     MedicationStatement &times; ${snap.written.meds} &middot; Flag &times; ${snap.written.flags} &middot;
     DetectedIssue &times; ${snap.written.cascades} &middot; Goal &times; ${snap.written.goals}${snap.written.risk ? ' &middot; RiskAssessment' : ''}
+    ${snap.written.resources?.length ? `
+    <table style="margin-top:12px">
+      <thead><tr><th style="width:190px">Resource</th><th>Content</th><th>Notes written with it</th></tr></thead>
+      <tbody>
+      ${snap.written.resources.map((r) => `
+        <tr>
+          <td><a href="https://app.medplum.com/${r.type}/${r.id}" target="_blank">${r.type}</a></td>
+          <td>${esc(r.label)}</td>
+          <td class="muted">${r.note ? esc(r.note) : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : ''}
     <div class="citation">DetectedIssue carries <code>implicated</code> in causal order. All review resources are
     <em>preliminary / draft</em> — nothing is final without a clinician.</div>
   </div>` : '';
