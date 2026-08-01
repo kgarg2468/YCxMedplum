@@ -374,7 +374,7 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
 
   .app {
     position: relative; height: 100vh; display: flex; flex-direction: column;
-    gap: 8px; padding: 8px 12px 8px;
+    gap: 14px; padding: 16px 20px 14px;
   }
 
   /* ── Header strip ────────────────────────────────────────────────────── */
@@ -382,7 +382,7 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
     flex: 0 0 auto; display: flex; align-items: stretch; gap: 0;
     border: 1px solid var(--hairline-strong); background: var(--surface);
   }
-  .hdr > * { padding: 8px 14px; border-right: 1px solid var(--hairline); }
+  .hdr > * { padding: 12px 18px; border-right: 1px solid var(--hairline); }
   .hdr > *:last-child { border-right: none; }
   .hdr-id { flex: 0 0 auto; display: flex; flex-direction: column; justify-content: center; gap: 3px; }
   .wordmark {
@@ -418,7 +418,7 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   .basis.unconfirmed .flag, .basis.unconfirmed .headline { color: var(--sev-high); }
 
   /* Stat numerals — medium, inline, never quarter-page tiles. */
-  .stats { flex: 0 0 auto; display: flex; gap: 22px; align-items: center; }
+  .stats { flex: 0 0 auto; display: flex; gap: 30px; align-items: center; }
   .stat { display: flex; flex-direction: column; align-items: flex-start; line-height: 1; }
   .stat .v {
     font-family: var(--display); font-weight: 800; font-size: 32px; letter-spacing: -1.6px;
@@ -441,7 +441,7 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   /* ── Three-column grid ───────────────────────────────────────────────── */
   .grid {
     flex: 1 1 auto; min-height: 0;
-    display: grid; grid-template-columns: 1.05fr 1.98fr .92fr; gap: 8px;
+    display: grid; grid-template-columns: 1.05fr 1.98fr .92fr; gap: 14px;
   }
   .panel {
     min-height: 0; min-width: 0; display: flex; flex-direction: column;
@@ -449,8 +449,8 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   }
   .ptitle {
     flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px;
-    padding: 6px 10px; border-bottom: 1px solid var(--hairline-strong);
-    font-size: 10px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--ink-50);
+    padding: 10px 14px; border-bottom: 1px solid var(--hairline-strong);
+    font-size: 10.5px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; color: var(--ink-50);
   }
   .ptitle .lbl { color: var(--ink); }
   .ptitle .lbl::before { content: "[ "; } .ptitle .lbl::after { content: " ]"; }
@@ -458,23 +458,23 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
     font-family: var(--display); font-weight: 800; font-size: 15px; letter-spacing: -.6px;
     color: var(--ink-50); margin-left: auto; line-height: 1;
   }
-  .pbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 10px 8px; }
+  .pbody { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 14px 12px; }
   .pbody::-webkit-scrollbar { width: 7px; }
   .pbody::-webkit-scrollbar-thumb { background: var(--hairline-strong); }
   .pfoot {
-    flex: 0 0 auto; padding: 5px 10px; border-top: 1px solid var(--hairline);
-    font-size: 9.5px; letter-spacing: .5px; color: var(--ink-50); line-height: 1.4;
+    flex: 0 0 auto; padding: 8px 14px; border-top: 1px solid var(--hairline);
+    font-size: 10px; letter-spacing: .5px; color: var(--ink-50); line-height: 1.5;
   }
 
   /* ── Tables ──────────────────────────────────────────────────────────── */
-  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
   thead th {
     position: sticky; top: 0; z-index: 1; background: var(--surface);
-    text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
-    color: var(--ink-50); font-weight: 700; padding: 6px 8px 5px 0;
+    text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--ink-50); font-weight: 700; padding: 9px 10px 7px 0;
     border-bottom: 1px solid var(--hairline-strong);
   }
-  td { padding: 5px 8px 5px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; line-height: 1.35; }
+  td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; line-height: 1.5; }
   tr:last-child td { border-bottom: none; }
   td.num { font-variant-numeric: tabular-nums; }
   .ing { font-family: var(--display); font-weight: 700; font-size: 12.5px; letter-spacing: -.3px; }
@@ -487,43 +487,43 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   /* ── Cascade strip — compact, mint accented, top of the findings panel ── */
   .cstrip {
     border: 1px solid var(--mint); border-left: 5px solid var(--mint); background: rgba(40,233,159,0.09);
-    padding: 5px 8px 6px; margin: 6px 0 5px;
+    padding: 10px 12px 11px; margin: 12px 0 10px;
   }
-  .cstrip + .cstrip { margin-top: 5px; }
+  .cstrip + .cstrip { margin-top: 10px; }
   .cstrip .ceyebrow {
     font-size: 9px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--ink-70);
   }
-  .cflow { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 0; margin: 4px 0 3px; }
+  .cflow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin: 7px 0 6px; }
   .cflow .node {
     border: 1px solid var(--hairline-strong); background: var(--surface); padding: 2px 7px;
     font-family: var(--display); font-weight: 700; font-size: 12.5px; letter-spacing: -.4px;
   }
   .cflow .arr-col { padding: 0 6px; color: var(--ink); font-size: 13px; line-height: 1; }
-  .cstrip .cnote { font-size: 9.5px; color: var(--ink-70); line-height: 1.35; }
-  .cstrip .cmeta { display: flex; flex-wrap: wrap; gap: 2px 7px; align-items: baseline; margin-top: 3px; }
+  .cstrip .cnote { font-size: 10.5px; color: var(--ink-70); line-height: 1.5; }
+  .cstrip .cmeta { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; margin-top: 6px; }
 
   /* ── Finding rows ────────────────────────────────────────────────────── */
   .f {
-    display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 0 7px; align-items: start;
-    padding: 3px 0 3px 6px; border-bottom: 1px solid var(--hairline);
+    display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 0 10px; align-items: start;
+    padding: 8px 0 8px 9px; border-bottom: 1px solid var(--hairline);
     border-left: 4px solid var(--accent);
   }
   .f:last-child { border-bottom: none; }
   .fsev {
     display: inline-flex; align-items: center; gap: 4px; justify-content: flex-start;
-    font-size: 8.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
-    border: 1px solid var(--accent); color: var(--accent); padding: 0 4px; margin-top: 1px;
+    font-size: 9px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+    border: 1px solid var(--accent); color: var(--accent); padding: 1px 5px; margin-top: 2px;
   }
   .sev-icon { font-size: 8px; }
   .fmain { min-width: 0; }
-  .fline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 7px; line-height: 1.2; }
-  .flabel { font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: -.3px; }
-  .fkind { font-size: 8.5px; font-weight: 700; letter-spacing: .9px; text-transform: uppercase; color: var(--ink-50); }
-  .fimp { font-size: 10px; color: var(--ink-70); letter-spacing: .2px; }
+  .fline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; line-height: 1.4; }
+  .flabel { font-family: var(--display); font-weight: 700; font-size: 12.5px; letter-spacing: -.3px; }
+  .fkind { font-size: 9px; font-weight: 700; letter-spacing: .9px; text-transform: uppercase; color: var(--ink-50); }
+  .fimp { font-size: 10.5px; color: var(--ink-70); letter-spacing: .2px; }
   .fimp .arr { color: var(--ink-50); }
-  .fmeta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1px 6px; line-height: 1.3; }
-  .fcite { font-size: 8.8px; letter-spacing: .2px; color: var(--ink-50); line-height: 1.3; }
-  .confirm { font-size: 8.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
+  .fmeta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; line-height: 1.45; margin-top: 2px; }
+  .fcite { font-size: 9.5px; letter-spacing: .2px; color: var(--ink-50); line-height: 1.45; }
+  .confirm { font-size: 9px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; }
   .confirm.yes { color: var(--good); }
   .confirm.no { color: var(--ink-50); }
 
@@ -537,22 +537,22 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   /* ── Known-before-the-call rows + the patient's own ask ──────────────── */
   .ask {
     border: 1px solid var(--hairline-strong); border-left: 5px solid var(--mint);
-    background: rgba(40,233,159,0.09); padding: 5px 8px 6px; margin: 8px 0 4px;
+    background: rgba(40,233,159,0.09); padding: 10px 12px 11px; margin: 12px 0 10px;
   }
   .ask .flag { font-size: 9px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase; color: var(--ink-50); }
-  .ask .quote { font-family: var(--display); font-weight: 600; font-size: 12px; letter-spacing: -.2px; line-height: 1.25; margin-top: 2px; }
-  .ask .intent { font-size: 9px; letter-spacing: .9px; text-transform: uppercase; color: var(--ink-70); margin-top: 2px; }
-  .crow { padding: 4px 0; border-bottom: 1px solid var(--hairline); }
+  .ask .quote { font-family: var(--display); font-weight: 600; font-size: 12.5px; letter-spacing: -.2px; line-height: 1.45; margin-top: 5px; }
+  .ask .intent { font-size: 9px; letter-spacing: .9px; text-transform: uppercase; color: var(--ink-70); margin-top: 5px; }
+  .crow { padding: 8px 0; border-bottom: 1px solid var(--hairline); }
   .crow:last-child { border-bottom: none; }
-  .crow .cname { font-family: var(--display); font-weight: 700; font-size: 11.5px; letter-spacing: -.2px; line-height: 1.2; }
-  .crow .cmeta2 { font-size: 9.5px; color: var(--ink-50); letter-spacing: .3px; line-height: 1.35; }
+  .crow .cname { font-family: var(--display); font-weight: 700; font-size: 12px; letter-spacing: -.2px; line-height: 1.35; }
+  .crow .cmeta2 { font-size: 10px; color: var(--ink-50); letter-spacing: .3px; line-height: 1.5; margin-top: 1px; }
   .crow .conf-yes { color: var(--good); }
 
   /* ── Bottom strip: what landed in the record, plus optional prose ────── */
   .strip {
-    flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
-    padding: 5px 10px; background: var(--surface); border: 1px solid var(--hairline-strong);
-    font-size: 10px; letter-spacing: .4px; color: var(--ink-70);
+    flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px;
+    padding: 9px 14px; background: var(--surface); border: 1px solid var(--hairline-strong);
+    font-size: 10.5px; letter-spacing: .4px; color: var(--ink-70);
   }
   .strip .slbl { font-size: 9px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-50); }
   .strip .slbl::before { content: "[ "; } .strip .slbl::after { content: " ]"; }
