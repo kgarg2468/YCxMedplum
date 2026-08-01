@@ -1,5 +1,7 @@
 # Cross-Prescriber Medication Review Execution Plan
 
+> **Superseded:** Solo execution now uses [`2026-08-01-solo-master-execution.md`](./2026-08-01-solo-master-execution.md). Keep this file only as the historical three-developer coordination plan; do not execute it as the active source of truth.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Demonstrate that YCxMedplum can read a synthetic patient's medication history from Medplum, carry that context into a Vapi phone interview, capture the patient's concerns and medication-change priorities once, identify evidence-backed potential prescribing cascades across prescribers, and return one clinician-reviewable coordination artifact to the authorized care team.
