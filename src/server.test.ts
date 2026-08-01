@@ -19,6 +19,7 @@ import type { InterviewContext } from './context/types.js';
 import type { Extraction, ResolvedMed, SpokenMed } from './types.js';
 import type { ReviewSnapshot } from './ui/panel.js';
 import { SYNTHETIC_TAG, DEMO_IDENTIFIER_SYSTEM } from './fhir/seed.js';
+import { persistReview as realPersistReview } from './fhir/writers.js';
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -476,6 +477,70 @@ const endOfCall = (callId: string | undefined, transcript: string) => ({
   });
   assert.equal(h.redFlagTasks.length, 1, 'red flags are checked per turn, not at end of call');
   assert.equal(h.redFlagTasks[0].patientId, SYNTHETIC_2.id);
+}
+
+// ── end-to-end idempotency: partial writer failure, then retry ─────────────
+{
+  // The real writers against a structural Medplum stub, driven through the real
+  // end-of-call route: extraction must run once and every identifier stays unique.
+  const store = new Map<string, any>();
+  const created: any[] = [];
+  let seq = 0;
+  const keyOf = (r: any) => `${r.resourceType}|${r.identifier?.[0]?.value ?? ''}`;
+  const fhir = {
+    readResource: async (_t: string, id: string) => (id === SYNTHETIC.id ? SYNTHETIC : SYNTHETIC_2),
+    searchOne: async (resourceType: string, query: Record<string, string>) =>
+      store.get(`${resourceType}|${(query.identifier ?? '').split('|').slice(1).join('|')}`),
+    createResource: async (r: any) => {
+      const withId = { ...r, id: `${r.resourceType}-${++seq}` };
+      store.set(keyOf(withId), withId);
+      created.push(withId);
+      return withId;
+    },
+    updateResource: async (r: any) => { store.set(keyOf(r), r); return r; },
+  } as unknown as MedplumClient;
+
+  let failAt: number | null = 2;
+  const h = harness({
+    getMedplum: async () => fhir,
+    persistReview: (async (m: MedplumClient, patient: Patient, review: any, options: any) =>
+      realPersistReview(m, patient, review, {
+        ...options,
+        beforeWrite: (ordinal: number) => {
+          if (ordinal === failAt) throw new Error('injected partial FHIR failure');
+        },
+      })) as unknown as ServerDependencies['persistReview'],
+  });
+
+  const auth = { Authorization: 'Bearer start-secret' };
+  await withApp(createLocalApp(h.deps), async (origin) => {
+    const started = await fetch(`${origin}/demo/start-call`, json({ patientId: SYNTHETIC.id }, auth));
+    const { callId } = await started.json() as { callId: string };
+
+    await withApp(createWebhookApp(h.deps), async (webhookOrigin) => {
+      const post = () => fetch(`${webhookOrigin}/vapi`,
+        json(endOfCall(callId, 'Patient: yes, and a Benadryl at night'),
+          { Authorization: 'Bearer webhook-secret' }));
+
+      await post();
+      await h.waitForSettles(1);
+      assert.equal(h.settled[0].outcome, 'failed');
+      const partial = created.length;
+      assert.ok(partial >= 1, 'at least one write landed before the failure');
+
+      failAt = null;
+      await post();
+      await h.waitForSettles(2);
+      assert.equal(h.settled[1].outcome, 'processed');
+    });
+
+    assert.equal(h.extractCalls.length, 1, 'extraction ran exactly once across the retry');
+    const values = [...store.values()].map((r) => r.identifier?.[0]?.value);
+    assert.equal(values.filter(Boolean).length, values.length);
+    assert.equal(new Set(values).size, values.length, 'no duplicate output identifiers after retry');
+    assert.ok(values.every((v: string) => v.startsWith(`${callId}:`)), 'the run id is the Vapi call id');
+    assert.equal(h.deps.sessions.get(callId), undefined);
+  });
 }
 
 console.log('server tests passed');

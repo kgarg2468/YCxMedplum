@@ -21,6 +21,10 @@ import { explainFinding, buildTaper, challenge } from '../llm/agents.js';
 import { persistReview, writeTaperPlan, writePrescriberMessage, summarizeWritten } from '../fhir/writers.js';
 import { checkRedFlags } from '../voice/prompt.js';
 import type { ReviewSnapshot } from '../ui/panel.js';
+import type { ReviewWriteOptions } from '../context/types.js';
+
+/** The canned run is not a phone call, so it gets a fixed, stable run id. */
+const OFFLINE_RUN_ID = 'offline-demo';
 
 /** Snapshot for the review panel (src/ui/panel.ts, served at /review). */
 function saveSnapshot(snap: ReviewSnapshot) {
@@ -136,7 +140,10 @@ async function main() {
     process.env.MEDPLUM_CLIENT_SECRET!,
   );
   const { patient } = await seedDemoPatient(medplum);
-  const written = await persistReview(medplum, patient, review);
+  // Stable offline run id: re-running the canned demo updates the same output
+  // resources instead of piling up duplicates in the demo project.
+  const writeOptions: ReviewWriteOptions = { runId: OFFLINE_RUN_ID };
+  const written = await persistReview(medplum, patient, review, writeOptions);
 
   console.log(`  MedicationStatement × ${written.meds.length}`);
   console.log(`  Flag × ${written.flags.length}`);
@@ -147,7 +154,7 @@ async function main() {
   if (!taper.error && taper.steps?.length) {
     const { carePlan, tasks } = await writeTaperPlan(
       medplum, patient, 'lorazepam', taper.steps,
-      taper.monitoring ?? [], taper.citation ?? '');
+      taper.monitoring ?? [], taper.citation ?? '', writeOptions);
     console.log(`  CarePlan ${carePlan.id} + Task × ${tasks.length}`);
   }
 
@@ -157,7 +164,7 @@ async function main() {
     `${chains.length} chained prescribing cascade(s).\n\n` +
     review.findings.slice(0, 5).map((f) => `• ${f.label} — ${f.citation}`).join('\n') +
     `\n\nPatient's stated priority: ${review.patientGoals[0] ?? 'not recorded'}\n\n` +
-    `Reviewer objection to consider: ${objection}`);
+    `Reviewer objection to consider: ${objection}`, writeOptions);
   console.log('  Communication: drafted (status=preparation, not sent)');
 
   snapshot.patientId = patient.id;

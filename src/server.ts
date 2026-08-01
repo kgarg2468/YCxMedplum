@@ -301,7 +301,8 @@ async function escalateRedFlags(
   try {
     const medplum = await deps.getMedplum();
     if (!medplum) return false;
-    const task = await deps.writeRedFlagTask(medplum, session.patient, flags);
+    const task = await deps.writeRedFlagTask(medplum, session.patient, flags,
+      { runId: callId ?? 'live-call' });
     deps.escalatedCalls.add(key);
     console.warn(`→ Urgent Task/${task.id} created for clinician`);
     return true;
@@ -354,7 +355,10 @@ async function runPipeline(
 
     const medplum = session ? await deps.getMedplum() : null;
     if (session && medplum) {
-      const written = await deps.persistReview(medplum, session.patient, review);
+      // The Vapi call id is the run id, so a retry of this same call updates the
+      // resources it already wrote instead of duplicating them.
+      const written = await deps.persistReview(medplum, session.patient, review,
+        { runId: callId ?? 'live-call' });
       snapshot.patientId = session.patient.id;
       snapshot.patientLabel = patientLabel(session.patient);
       snapshot.written = {
