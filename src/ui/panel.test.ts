@@ -93,17 +93,19 @@ assert.ok(legacyHtml.includes('unconfirmed medication set'),
 // Null snapshot: the empty state still renders.
 assert.ok(renderReviewHtml(null).includes('No review yet'), 'empty state must render');
 
-// ── 2. The eight sections, in order ─────────────────────────────────────────
+// ── 2. Dashboard structure, in order ────────────────────────────────────────
+// The panel is a single-screen dashboard: a header strip carrying the review
+// basis, then three panels in priority order (what the call picked up ->
+// findings -> what was already known), then the written-resource strip.
+// "Findings" is matched on its panel label so the header stat of the same name
+// does not satisfy the assertion.
 
 const full = renderReviewHtml(snapshot());
 const order = [
   'Review based on',
-  'What the patient wants addressed',
+  'Medications the agent picked up',
+  'class="lbl">Findings<',
   'Known before the call',
-  'Patient-reported changes or gaps',
-  'Potential prescribing cascade',
-  'Other findings',
-  'Medication reconciliation',
   'FHIR resources written',
 ];
 let previous = -1;
@@ -241,12 +243,19 @@ for (const html of [full, legacyHtml, heroHtml, structural, none]) {
 assert.ok(full.includes('Savage et al., JAMA Intern Med 2020'), 'every finding renders its citation');
 
 // Severity is text + icon, not colour alone.
-assert.ok(/sev-chip[\s\S]{0,200}High/.test(full), 'severity must carry a text label, not colour alone');
+assert.ok(/class="fsev"[\s\S]{0,200}High/.test(full), 'severity must carry a text label, not colour alone');
 
 // ── 6. The patient's own ask is prominent ───────────────────────────────────
+// On the dashboard the ask is a highlighted block at the top of the "known
+// before the call" panel rather than a full-width section, so prominence is
+// asserted structurally: the quote must sit inside that highlighted block.
 
-assert.ok(idx(full, 'I just want to feel clear again') < idx(full, 'Other findings'),
-  "the patient's stated concern must appear before the clinical findings");
+const askAt = idx(full, 'What the patient wants addressed');
+const quoteAt = idx(full, 'I just want to feel clear again');
+assert.ok(quoteAt > askAt && quoteAt - askAt < 400,
+  "the patient's stated concern must sit inside the 'what the patient wants addressed' block");
+assert.ok(/class="ask"[\s\S]{0,400}I just want to feel clear again/.test(full),
+  "the patient's concern must be visually highlighted, not ordinary body text");
 assert.ok(full.includes('discuss stopping'), 'the concern intent must be shown in plain words');
 
 // ── 7. Escaping — every free-text field ─────────────────────────────────────
