@@ -30,7 +30,7 @@ const OFFLINE_RUN_ID = 'offline-demo';
 function saveSnapshot(snap: ReviewSnapshot) {
   mkdirSync('out', { recursive: true });
   writeFileSync('out/last-review.json', JSON.stringify(snap, null, 2));
-  console.log('\n(review panel snapshot → out/last-review.json — view at http://localhost:3000/review)');
+  console.log('\n(review panel snapshot → out/last-review.json — view at http://127.0.0.1:3001/review)');
 }
 
 const noFhir = process.argv.includes('--no-fhir');
