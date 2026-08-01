@@ -196,10 +196,19 @@ function sourceChip(relation: ReturnType<typeof sourceRelation>): string {
 }
 
 const SEVERITY = {
-  high:     { var: '--critical', icon: '&#9679;', label: 'High' },
-  moderate: { var: '--serious',  icon: '&#9650;', label: 'Moderate' },
-  low:      { var: '--warning',  icon: '&#9632;', label: 'Low' },
+  high:     { var: '--sev-high', icon: '&#9679;', label: 'High' },
+  moderate: { var: '--sev-mod',  icon: '&#9650;', label: 'Moderate' },
+  low:      { var: '--sev-low',  icon: '&#9632;', label: 'Low' },
 } as const;
+
+/**
+ * Section heading. The bracketing and the caps are CSS, never text: the literal
+ * heading strings are a tested contract, so they stay exactly as written here.
+ */
+function head(step: string | null, text: string, count?: string | number | null): string {
+  return `<h2>${step ? `<span class="step">STEP ${step}</span>` : ''}<span class="lbl">${text}</span>${
+    count !== null && count !== undefined ? `<span class="count">${count}</span>` : ''}</h2>`;
+}
 
 const KIND_LABEL: Record<Finding['kind'], string> = {
   cascade: 'Prescribing cascade',
@@ -264,6 +273,9 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Deprescribe — medication review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wght@400;600;800&family=Space+Mono:wght@400;700&display=swap">
 <script>
   // Reload only when a NEW review lands — a blind meta-refresh resets scroll
   // position every few seconds, which is unusable mid-presentation.
@@ -277,186 +289,265 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   }, 3000);
 </script>
 <style>
+  /* ── Design system ──────────────────────────────────────────────────────
+     Sharp corners everywhere (zero border-radius), hairline rules, no drop
+     shadows: depth comes from alternating light-canvas / dark-ink bands.
+     Severity is never colour alone — every severity carries an icon + word. */
   :root {
     color-scheme: light;
-    --page: #f9f9f7; --surface: #fcfcfb;
-    --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
-    --hairline: #e1e0d9; --border: rgba(11,11,11,0.10);
-    --critical: #d03b3b; --serious: #ec835a; --warning: #fab219; --good: #0ca30c;
-    --shadow: 0 1px 2px rgba(11,11,11,0.04), 0 4px 14px rgba(11,11,11,0.05);
+    --canvas: #E9E9E9;
+    --surface: #EEEEEE;
+    --ink: #3D3B4F;
+    --ink-50: rgba(61,59,79,0.5);
+    --ink-70: rgba(61,59,79,0.7);
+    --on-dark: #EEEEEE;
+    --on-dark-60: rgba(238,238,238,0.62);
+    --mint: #28E99F;
+    --mint-pale: #C5FFD6;
+    --pink: #FFCFFE;
+    --pink-soft: rgba(255,172,254,0.1);
+    --blue: rgba(88,130,255,0.5);
+    --hairline: rgba(61,59,79,0.15);
+    --hairline-strong: rgba(61,59,79,0.32);
+
+    /* Severity — differentiated in hue AND always paired with icon + label. */
+    --sev-high: #B4142E;
+    --sev-mod:  #9A5308;
+    --sev-low:  #3F4FA8;
+    --good: #0B7A4B;
+
+    --display: "Anybody", "Helvetica Neue", Arial, sans-serif;
+    --mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      color-scheme: dark;
-      --page: #0d0d0d; --surface: #1a1a19;
-      --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
-      --hairline: #2c2c2a; --border: rgba(255,255,255,0.10);
-      --shadow: none;
-    }
-  }
-  * { box-sizing: border-box; }
+  * { box-sizing: border-box; border-radius: 0 !important; }
+  html { background: var(--canvas); }
   body {
-    margin: 0; background: var(--page); color: var(--ink);
-    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
-    -webkit-font-smoothing: antialiased;
+    margin: 0; background: var(--canvas); color: var(--ink);
+    font: 500 15px/1.62 var(--mono); letter-spacing: .35px;
+    -webkit-font-smoothing: antialiased; overflow-x: hidden;
   }
-  main { max-width: 1080px; margin: 0 auto; padding: 40px 28px 80px; }
+  main { position: relative; z-index: 0; max-width: 1180px; margin: 0 auto; padding: 0 32px 0; }
+  strong, b { font-weight: 700; }
+  .muted, .dim { color: var(--ink-50); }
 
-  /* ── Header ─────────────────────────────────────────── */
-  .brand { display: flex; align-items: baseline; gap: 10px; }
-  .wordmark { font-size: 15px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
-  .wordmark .minus { color: var(--critical); font-weight: 800; }
-  h1 { font-size: 30px; margin: 6px 0 0; letter-spacing: -0.01em; }
-  .sub { color: var(--ink-2); margin: 8px 0 0; font-size: 15.5px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
-  .sub a { color: inherit; }
+  /* Full-bleed dark band — the rhythm device. */
+  .band { position: relative; margin: 72px 0 0; padding: 64px 0 68px; color: var(--on-dark); }
+  .band::before {
+    content: ""; position: absolute; z-index: -1; top: 0; bottom: 0;
+    left: 50%; transform: translateX(-50%); width: 100vw; background: var(--ink);
+  }
+  .band {
+    --surface: rgba(238,238,238,0.06);
+    --hairline: rgba(238,238,238,0.22);
+    --hairline-strong: rgba(238,238,238,0.4);
+    --ink-50: var(--on-dark-60);
+    --ink-70: rgba(238,238,238,0.8);
+    --sev-high: #FF9BA8; --sev-mod: #FFCFFE; --sev-low: #9EB6FF; --good: var(--mint);
+  }
+  .band h2 { color: var(--mint-pale); }
+  .band h2 .lbl { color: var(--on-dark); }
+
+  /* ── Masthead ───────────────────────────────────────────────────────── */
+  .masthead { padding: 44px 0 0; }
+  .wordmark {
+    font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 1.2px;
+    text-transform: uppercase; color: var(--ink-50);
+  }
+  .wordmark .minus { color: var(--ink); font-weight: 700; }
+  h1 {
+    font-family: var(--display); font-weight: 800;
+    font-size: clamp(46px, 7.4vw, 96px); line-height: .94; letter-spacing: -2.4px;
+    margin: 18px 0 0; text-transform: none;
+  }
+  .sub {
+    margin: 22px 0 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase;
+  }
   .pill {
-    display: inline-block; font-size: 12.5px; font-weight: 600; letter-spacing: .02em;
-    border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; color: var(--ink-2);
+    display: inline-flex; align-items: center; padding: 6px 12px; font-weight: 700;
+    border: 1px solid var(--hairline-strong); color: var(--ink);
   }
-  .pill.live { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
-  .muted { color: var(--muted); }
-  .dim { color: var(--muted); }
+  .pill.name { background: var(--ink); color: var(--on-dark); border-color: var(--ink); }
+  .pill.live { background: var(--mint); border-color: var(--mint); color: var(--ink); }
+  .pill.time { border-style: dashed; color: var(--ink-50); }
 
-  /* ── Stat tiles ─────────────────────────────────────── */
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; margin-top: 28px; }
+  /* ── Review basis — the completeness caveat, never quiet ─────────────── */
+  .basis {
+    margin-top: 26px; padding: 20px 24px 22px; background: var(--surface);
+    border: 1px solid var(--hairline); border-left: 8px solid var(--good);
+  }
+  .basis .flag {
+    font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 1.8px;
+    text-transform: uppercase; color: var(--ink-50);
+  }
+  .basis .flag::before { content: "[ "; } .basis .flag::after { content: " ]"; }
+  .basis .headline {
+    font-family: var(--display); font-weight: 600; font-size: clamp(20px, 2.3vw, 30px);
+    letter-spacing: -1.1px; line-height: 1.12; margin-top: 8px;
+  }
+  .basis .note { color: var(--ink-70); font-size: 13.5px; margin-top: 8px; max-width: 74ch; }
+  .basis.partial { border-left-color: var(--sev-mod); }
+  .basis.unconfirmed { border-left-color: var(--sev-high); background: var(--pink-soft); }
+  .basis.unconfirmed .flag { color: var(--sev-high); }
+
+  /* ── Stat row — the signature giant numerals ─────────────────────────── */
+  .tiles {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    margin-top: 44px; border-top: 1px solid var(--hairline-strong); border-left: 1px solid var(--hairline);
+  }
   .tile {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 14px; padding: 18px 20px 16px; box-shadow: var(--shadow);
+    padding: 22px 24px 26px; border-right: 1px solid var(--hairline); border-bottom: 1px solid var(--hairline);
+    display: flex; flex-direction: column;
   }
-  .tile .label { font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
-  .tile .value { font-size: 44px; font-weight: 650; line-height: 1.1; margin-top: 4px; letter-spacing: -0.02em; }
-  .tile .note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
-  .meter { height: 7px; border-radius: 4px; margin-top: 12px; position: relative;
-    background: color-mix(in srgb, var(--meter-color) 16%, var(--surface)); }
-  .meter .fill { position: absolute; inset: 0 auto 0 0; width: var(--meter-fill); background: var(--meter-color); border-radius: 4px; }
-  .meter .tick { position: absolute; top: -3px; bottom: -3px; left: var(--meter-tick); width: 2px; background: var(--ink-2); border-radius: 1px; opacity: .55; }
+  .tile .label {
+    font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 1.8px;
+    text-transform: uppercase; color: var(--ink-50);
+  }
+  .tile .value {
+    font-family: var(--display); font-weight: 800; font-size: clamp(62px, 8vw, 104px);
+    line-height: .9; letter-spacing: -3px; margin: 12px 0 auto; font-variant-numeric: tabular-nums;
+  }
+  .tile .note { font-size: 12px; color: var(--ink-50); margin-top: 14px; line-height: 1.5; letter-spacing: .3px; }
+  .meter { height: 8px; margin-top: 20px; position: relative; background: rgba(61,59,79,0.12); }
+  .meter .fill { position: absolute; inset: 0 auto 0 0; width: var(--meter-fill); background: var(--meter-color); }
+  .meter .tick { position: absolute; top: -4px; bottom: -4px; left: var(--meter-tick); width: 2px; background: var(--ink); }
 
-  /* ── Hero: the chained cascade ──────────────────────── */
-  .hero {
-    margin-top: 28px; border-radius: 16px; padding: 26px 28px 24px;
-    background: color-mix(in srgb, var(--critical) 6%, var(--surface));
-    border: 1px solid color-mix(in srgb, var(--critical) 30%, var(--border));
-    box-shadow: var(--shadow);
-  }
-  .hero .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-    color: color-mix(in srgb, var(--critical) 80%, var(--ink)); }
-  .diagram { display: flex; flex-wrap: wrap; align-items: stretch; gap: 6px 0; margin-top: 16px; }
-  .drug {
-    background: var(--surface); border: 1px solid color-mix(in srgb, var(--critical) 40%, var(--border));
-    border-radius: 12px; padding: 12px 18px 10px; min-width: 150px;
-  }
-  .drug .name { font-size: 21px; font-weight: 650; letter-spacing: -0.01em; }
-  .drug .why { font-size: 12.5px; color: var(--muted); margin-top: 2px; max-width: 200px; }
-  .arrow-col { display: flex; align-items: center; padding: 0 14px;
-    color: color-mix(in srgb, var(--critical) 75%, var(--ink)); font-size: 26px; }
-  .hero .caption { margin-top: 14px; color: var(--ink-2); font-size: 15.5px; }
-  .hero .caption strong { color: var(--ink); }
-
+  /* ── Red flags ───────────────────────────────────────────────────────── */
   .redflag {
-    margin-top: 20px; border-radius: 14px; padding: 18px 22px;
-    background: color-mix(in srgb, var(--critical) 12%, var(--surface));
-    border: 1px solid color-mix(in srgb, var(--critical) 50%, var(--border));
-    font-size: 16px;
+    margin-top: 36px; padding: 24px 26px; background: var(--ink); color: var(--on-dark);
+    border-left: 10px solid var(--pink); font-size: 16px; letter-spacing: .3px;
   }
+  .redflag strong { color: var(--pink); text-transform: uppercase; letter-spacing: 1.2px; font-size: 13px; display: block; margin-bottom: 8px; }
 
-  /* ── Sections & cards ───────────────────────────────── */
-  h2 { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em;
-    color: var(--ink-2); margin: 40px 0 4px; display: flex; align-items: baseline; gap: 8px; }
-  h2 .count { color: var(--muted); font-weight: 500; }
+  /* ── Section heads: STEP 0n  +  [ BRACKETED LABEL ] ──────────────────── */
+  h2 {
+    margin: 64px 0 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px;
+    font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 1.8px;
+    text-transform: uppercase; color: var(--ink-50);
+  }
+  h2 .step { color: var(--ink-50); }
+  .band h2 .step { color: var(--mint-pale); }
+  h2 .lbl { color: var(--ink); }
+  h2 .lbl::before { content: "[ "; } h2 .lbl::after { content: " ]"; }
+  h2 .count {
+    font-family: var(--display); font-weight: 800; font-size: 22px; letter-spacing: -.8px;
+    color: var(--ink-50); margin-left: auto;
+  }
+  .band h2 { margin-top: 0; }
+
+  /* ── Cards ───────────────────────────────────────────────────────────── */
   .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 14px; padding: 18px 22px; margin-top: 14px; box-shadow: var(--shadow);
+    background: var(--surface); border: 1px solid var(--hairline);
+    padding: 22px 24px; margin-top: 16px;
   }
-  .finding { border-left: 4px solid var(--accent); }
-  .finding-head { display: flex; gap: 12px; align-items: center; }
+  .finding { border-left: 6px solid var(--accent); }
+  .finding-head { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
   .sev-chip {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 12.5px; font-weight: 700; letter-spacing: .03em;
-    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
-    background: color-mix(in srgb, var(--accent) 9%, var(--surface));
-    border-radius: 999px; padding: 2px 11px;
+    display: inline-flex; align-items: center; gap: 7px;
+    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    border: 1px solid var(--accent); color: var(--accent); padding: 4px 10px;
   }
-  .sev-icon { color: var(--accent); font-size: 10px; }
-  .kind { color: var(--muted); font-size: 13.5px; }
-  .finding-label { font-weight: 650; font-size: 18px; margin-top: 8px; letter-spacing: -0.01em; }
-  .chain-line { color: var(--ink-2); margin-top: 4px; font-size: 15.5px; }
+  .sev-icon { font-size: 10px; }
+  .kind { color: var(--ink-50); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; font-weight: 700; }
+  .finding-label {
+    font-family: var(--display); font-weight: 600; font-size: 24px; letter-spacing: -0.96px;
+    line-height: 1.14; margin-top: 14px;
+  }
+  .chain-line { color: var(--ink-70); margin-top: 8px; font-size: 14px; }
 
-  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; margin-top: 10px; }
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 0; margin-top: 16px; }
   .flow .node {
-    background: color-mix(in srgb, var(--ink) 5%, var(--surface));
-    border: 1px solid var(--border); border-radius: 9px; padding: 5px 14px;
-    font-weight: 600; font-size: 16px;
+    background: transparent; border: 1px solid var(--hairline-strong); padding: 8px 16px;
+    font-family: var(--display); font-weight: 600; font-size: 20px; letter-spacing: -.8px;
   }
-  .flow .link { display: flex; flex-direction: column; align-items: center; padding: 0 12px; line-height: 1.1; }
-  .flow .link-symptom { font-size: 12px; color: var(--muted); font-style: italic; }
-  .flow .link-symptom.hit { color: var(--good); font-weight: 600; font-style: normal; }
-  .flow .link-arrow { font-size: 20px; color: var(--ink-2); }
+  .flow .link { display: flex; flex-direction: column; align-items: center; padding: 0 14px; line-height: 1.2; }
+  .flow .link-symptom { font-size: 10.5px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--ink-50); }
+  .flow .link-symptom.hit { color: var(--good); font-weight: 700; }
+  .flow .link-arrow { font-size: 20px; color: var(--ink-50); }
 
-  .confirm { font-size: 13.5px; margin-top: 10px; font-weight: 600; }
+  .confirm { font-size: 12px; margin-top: 14px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; }
   .confirm.yes { color: var(--good); }
-  .confirm.no { color: var(--muted); font-weight: 500; }
-  .explain { margin: 10px 0 0; color: var(--ink-2); }
-  .citation { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline);
-    font-size: 13px; color: var(--muted); }
+  .confirm.no { color: var(--ink-50); }
+  .explain { margin: 14px 0 0; color: var(--ink-70); font-size: 14px; max-width: 78ch; }
+  .citation {
+    margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--hairline);
+    font-size: 11.5px; letter-spacing: 1.1px; color: var(--ink-50); line-height: 1.6;
+  }
 
-  /* ── Tables ─────────────────────────────────────────── */
-  table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 15px; }
-  th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--muted); font-weight: 700; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--hairline); }
-  td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  /* ── Hero: the chained cascade, on the dark band ─────────────────────── */
+  .hero { margin-top: 16px; padding: 28px 30px 30px; background: var(--surface); border: 1px solid var(--hairline); }
+  .hero .eyebrow {
+    font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: 1.8px;
+    text-transform: uppercase; color: var(--mint);
+  }
+  .hero-title {
+    font-family: var(--display); font-weight: 600; font-size: clamp(26px, 3vw, 36px);
+    letter-spacing: -1.44px; line-height: 1.08; margin-top: 16px; color: var(--ink);
+  }
+  .band .hero-title { color: var(--mint-pale); }
+  .diagram { display: flex; flex-wrap: wrap; align-items: stretch; gap: 12px 0; margin-top: 22px; }
+  .drug { border: 1px solid var(--hairline-strong); padding: 16px 20px 14px; min-width: 180px; }
+  .drug .name { font-family: var(--display); font-weight: 800; font-size: 30px; letter-spacing: -1.4px; line-height: 1; }
+  .drug .why { font-size: 12px; color: var(--ink-50); margin-top: 10px; max-width: 220px; line-height: 1.45; }
+  .arrow-col { display: flex; align-items: center; padding: 0 16px; color: var(--mint); font-size: 30px; }
+  .hero .caption { margin-top: 22px; color: var(--ink-70); font-size: 14px; max-width: 82ch; }
+  .hero .caption strong { color: inherit; }
+  .band .hero .caption strong { color: var(--mint-pale); }
+
+  /* ── Tables ──────────────────────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; font-size: 13.5px; }
+  th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px;
+    color: var(--ink-50); font-weight: 700; padding: 10px 16px 10px 0; border-bottom: 1px solid var(--hairline-strong);
+  }
+  td { padding: 13px 16px 13px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
   tr:last-child td { border-bottom: none; }
   td.num { font-variant-numeric: tabular-nums; }
-  .said { color: var(--ink-2); }
-  .ing { font-weight: 600; }
-  .rxcui { font-size: 12.5px; color: var(--muted); font-weight: 400; }
+  .said { color: var(--ink-70); }
+  .ing { font-family: var(--display); font-weight: 600; font-size: 17px; letter-spacing: -.5px; }
+  .rxcui { font-size: 11px; color: var(--ink-50); letter-spacing: 1px; }
   .tag {
-    display: inline-block; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border);
-    border-radius: 999px; padding: 1px 9px; color: var(--ink-2); margin-left: 6px; white-space: nowrap;
+    display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 1.1px; text-transform: uppercase;
+    border: 1px solid var(--hairline-strong); padding: 2px 8px; color: var(--ink-50); margin-left: 6px; white-space: nowrap;
   }
-  .tag.warn { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 40%, var(--border));
-    background: color-mix(in srgb, var(--critical) 7%, var(--surface)); }
+  .tag.warn { color: var(--sev-high); border-color: var(--sev-high); background: var(--pink-soft); }
 
-  /* ── Review basis (never quiet — this is the completeness caveat) ──── */
-  .basis {
-    margin-top: 18px; border-radius: 12px; padding: 14px 18px;
-    border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow);
-    border-left: 5px solid var(--good);
-  }
-  .basis .headline { font-size: 17.5px; font-weight: 700; letter-spacing: -0.01em; }
-  .basis .note { color: var(--ink-2); font-size: 14.5px; margin-top: 4px; }
-  .basis.partial { border-left-color: var(--warning); }
-  .basis.unconfirmed {
-    border-left-color: var(--critical);
-    background: color-mix(in srgb, var(--critical) 8%, var(--surface));
-    border-color: color-mix(in srgb, var(--critical) 35%, var(--border));
-  }
-  .basis .flag { font-size: 12px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
-  .basis.unconfirmed .flag { color: color-mix(in srgb, var(--critical) 80%, var(--ink)); }
-
-  /* ── Source relationship chip ───────────────────────────────────────── */
+  /* ── Source relationship chip ────────────────────────────────────────── */
   .source-chip {
-    margin-top: 10px; display: inline-block; font-size: 12.5px; font-weight: 600;
-    border: 1px solid var(--border); border-radius: 999px; padding: 2px 11px; color: var(--ink-2);
+    margin-top: 16px; display: inline-block; font-size: 11px; font-weight: 700;
+    letter-spacing: 1.4px; text-transform: uppercase;
+    border: 1px solid var(--hairline-strong); padding: 5px 11px; color: var(--ink-70);
   }
-  .source-chip.cross {
-    color: color-mix(in srgb, var(--critical) 80%, var(--ink));
-    border-color: color-mix(in srgb, var(--critical) 40%, var(--border));
-    background: color-mix(in srgb, var(--critical) 7%, var(--surface));
+  .source-chip.cross { color: var(--ink); background: var(--mint); border-color: var(--mint); }
+  .band .source-chip.cross { color: var(--ink); }
+
+  /* ── Patient's own ask ───────────────────────────────────────────────── */
+  .ask { border-left: 6px solid var(--mint); }
+  .ask .intent { color: var(--ink-50); font-size: 11.5px; letter-spacing: 1.4px; text-transform: uppercase; margin-top: 8px; }
+  .quote {
+    font-family: var(--display); font-weight: 600; font-size: clamp(22px, 2.6vw, 36px);
+    letter-spacing: -1.44px; line-height: 1.1; margin-top: 6px;
   }
+  .quote + .quote { margin-top: 18px; }
+  .gap { display: flex; flex-wrap: wrap; gap: 6px 20px; align-items: baseline; padding: 14px 0; border-bottom: 1px solid var(--hairline); }
+  .gap:first-child { padding-top: 0; }
+  .gap:last-child { border-bottom: none; padding-bottom: 0; }
+  .gap .what { font-family: var(--display); font-weight: 600; font-size: 20px; letter-spacing: -.8px; min-width: 220px; }
+  .gap .why { color: var(--ink-70); font-size: 13.5px; }
+  .empty-note { color: var(--ink-50); font-size: 14px; }
 
-  /* ── Patient's own ask ──────────────────────────────────────────────── */
-  .ask { border-left: 5px solid var(--good); }
-  .ask .intent { color: var(--ink-2); font-size: 14px; margin-top: 4px; }
-  .gap { display: flex; gap: 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--hairline); }
-  .gap:last-child { border-bottom: none; }
-  .gap .what { font-weight: 650; min-width: 190px; }
-  .gap .why { color: var(--ink-2); font-size: 14.5px; }
-  .empty-note { color: var(--muted); }
+  .foot {
+    padding: 0; font-size: 12px; letter-spacing: 1px; line-height: 1.75;
+    color: var(--on-dark-60); max-width: 92ch;
+  }
+  .foot .foot-mark {
+    font-family: var(--display); font-weight: 800; font-size: clamp(28px, 4vw, 52px);
+    letter-spacing: -1.8px; color: var(--mint); display: block; margin-bottom: 18px; line-height: 1;
+  }
+  code { font-family: var(--mono); background: var(--pink-soft); padding: 1px 6px; }
+  .band code { background: rgba(238,238,238,0.12); }
 
-  .quote { font-size: 19px; letter-spacing: -0.01em; }
-  .foot { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--hairline);
-    font-size: 13px; color: var(--muted); max-width: 860px; }
-  code { background: color-mix(in srgb, var(--ink) 6%, var(--surface)); padding: 1px 6px; border-radius: 5px; }
+  .empty { margin-top: 80px; }
 </style>
 </head>
 <body><main>${body}</main></body>
@@ -467,7 +558,7 @@ function renderBody(snap: ReviewSnapshot): string {
   const r = snap.review;
   const cascades = r.findings.filter((f) => f.kind === 'cascade');
   const confirmedCascades = cascades.filter((f) => f.symptomConfirmed).length;
-  const acbColor = r.acbScore >= 6 ? 'var(--critical)' : r.acbScore >= 3 ? 'var(--serious)' : 'var(--good)';
+  const acbColor = r.acbScore >= 6 ? 'var(--sev-high)' : r.acbScore >= 3 ? 'var(--sev-mod)' : 'var(--good)';
   const acbFill = Math.min(100, Math.round((r.acbScore / 12) * 100));
   const acbTick = Math.round((3 / 12) * 100); // clinical threshold marker
   const when = new Date(snap.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
@@ -489,7 +580,8 @@ function renderBody(snap: ReviewSnapshot): string {
   // ── 5. the hero: the strongest potential cascade, plus any chain ──────────
   const hero = cascades[0];
   const heroSection = (hero || snap.chains.length) ? `
-  <h2>Potential prescribing cascade</h2>
+  <section class="band">
+  ${head('04', 'Potential prescribing cascade')}
   ${snap.chains.map((chain) => `
   <div class="hero">
     <div class="eyebrow">Chained pattern</div>
@@ -513,7 +605,7 @@ function renderBody(snap: ReviewSnapshot): string {
       <span class="sev-chip"><span class="sev-icon">${SEVERITY[hero.severity].icon}</span>${SEVERITY[hero.severity].label}</span>
       <span class="kind">${KIND_LABEL[hero.kind]}</span>
     </div>
-    <div class="eyebrow" style="margin-top:10px">${esc(hero.label)}</div>
+    <div class="hero-title">${esc(hero.label)}</div>
     ${cascadeFlow(hero)}
     <div class="caption"><strong>${esc(hero.implicated[1] ?? '')} may have been added in response to a side effect of
     ${esc(hero.implicated[0] ?? '')}.</strong>${hero.linkingSymptom ? ` Linking symptom: ${esc(hero.linkingSymptom)}.` : ''}
@@ -523,12 +615,13 @@ function renderBody(snap: ReviewSnapshot): string {
       : '<div class="confirm no">&#9675; Present in the medication list; linking symptom not reported</div>'}
     ${sourceChip(sourceRelation(hero.implicated, chartMeds))}
     <div class="citation">${esc(hero.citation)}</div>
-  </div>` : ''}` : '';
+  </div>` : ''}
+  </section>` : '';
 
   // ── 8. what actually landed in the record — prose only, no ids, no links ──
   const w = snap.written;
   const written = `
-  <h2>FHIR resources written</h2>
+  ${head('07', 'FHIR resources written')}
   <div class="card">
     ${w ? `MedicationStatement &times; ${w.meds} &middot; Flag &times; ${w.flags} &middot;
     DetectedIssue &times; ${w.cascades} &middot; Goal &times; ${w.goals}${w.risk ? ' &middot; RiskAssessment' : ''}${w.task ? ' &middot; Task (urgent)' : ''}
@@ -551,14 +644,16 @@ function renderBody(snap: ReviewSnapshot): string {
   </div>`;
 
   return `
-  <div class="brand"><span class="wordmark">Deprescribe<span class="minus"> &minus;</span></span></div>
-  <h1>Pre-visit medication review</h1>
+  <div class="masthead">
+  <div class="wordmark">Deprescribe<span class="minus"> &minus;</span></div>
+  <h1>Pre-visit<br>medication review</h1>
   <p class="sub">
-    <span>${esc(snap.patientDisplay ?? snap.patientLabel ?? 'Synthetic demo patient')}</span>
+    <span class="pill name">${esc(snap.patientDisplay ?? snap.patientLabel ?? 'Synthetic demo patient')}</span>
     <span class="pill">synthetic demo</span>
     <span class="pill${snap.source === 'live-call' ? ' live' : ''}">${snap.source === 'live-call' ? '&#9679; live call' : 'canned demo'}</span>
-    <span class="muted">${esc(when)}</span>
+    <span class="pill time">${esc(when)}</span>
   </p>
+  </div>
 
   <div class="basis ${basis.kind}">
     <div class="flag">Review basis</div>
@@ -592,12 +687,12 @@ function renderBody(snap: ReviewSnapshot): string {
 
   ${r.redFlags.length ? `
   <div class="redflag">
-    <strong>&#9888; Red flags — ${snap.written?.task
+    <strong>&#9888; Red flags &mdash; ${snap.written?.task
       ? 'urgent FHIR Task created for clinician'
-      : 'immediate clinician attention required'}:</strong> ${r.redFlags.map(esc).join('; ')}
+      : 'immediate clinician attention required'}</strong>${r.redFlags.map(esc).join('; ')}
   </div>` : ''}
 
-  <h2>What the patient wants addressed</h2>
+  ${head('01', 'What the patient wants addressed')}
   <div class="card ask">
     ${(snap.concerns ?? []).map((c) => `
       <div class="quote">&ldquo;${esc(c.patientWords)}&rdquo;</div>
@@ -609,7 +704,7 @@ function renderBody(snap: ReviewSnapshot): string {
     Priorities the patient states are review prompts, never instructions to change a medication.</div>
   </div>
 
-  <h2>Known before the call ${chartMeds ? `<span class="count">${chartMeds.length}</span>` : ''}</h2>
+  ${head('02', 'Known before the call', chartMeds ? chartMeds.length : null)}
   <div class="card">
     ${chartMeds?.length ? `
     <table>
@@ -628,7 +723,7 @@ function renderBody(snap: ReviewSnapshot): string {
       ? `<div class="citation">Charted conditions: ${snap.chart.conditions.map(esc).join(' &middot; ')}</div>` : ''}
   </div>
 
-  <h2>Patient-reported changes or gaps ${snap.gaps ? `<span class="count">${snap.gaps.length}</span>` : ''}</h2>
+  ${head('03', 'Patient-reported changes or gaps', snap.gaps ? snap.gaps.length : null)}
   <div class="card">
     ${snap.gaps?.length ? snap.gaps.map((g) => `
       <div class="gap">
@@ -642,12 +737,12 @@ function renderBody(snap: ReviewSnapshot): string {
 
   ${heroSection}
 
-  <h2>Other findings <span class="count">${Math.max(0, r.findings.length - (hero ? 1 : 0))}</span></h2>
+  ${head('05', 'Other findings', Math.max(0, r.findings.length - (hero ? 1 : 0)))}
   ${r.findings.filter((f) => f !== hero).map((f) => findingCard(f, chartMeds)).join('')
     || '<div class="card"><span class="empty-note">No further findings.</span></div>'}
 
   ${snap.taper?.steps?.length ? `
-  <h2>Draft taper — ${esc(snap.taper.drug)}</h2>
+  ${head(null, `Draft taper &mdash; ${esc(snap.taper.drug)}`)}
   <div class="card">
     <table>
       <thead><tr><th style="width:70px">Week</th><th style="width:180px">Dose</th><th>Note</th></tr></thead>
@@ -659,13 +754,13 @@ function renderBody(snap: ReviewSnapshot): string {
   </div>` : ''}
 
   ${snap.objection ? `
-  <h2>Reviewer objection — peer review</h2>
+  ${head(null, 'Reviewer objection &mdash; peer review')}
   <div class="card">
     <p class="explain" style="margin:0">${esc(snap.objection)}</p>
     <div class="citation">Generated by an adversarial reviewer agent before any clinician sees the plan.</div>
   </div>` : ''}
 
-  <h2>Medication reconciliation <span class="count">${r.meds.length}</span></h2>
+  ${head('06', 'Medication reconciliation', r.meds.length)}
   <div class="card">
     <table>
       <thead><tr><th style="width:26%">Medication</th><th style="width:24%">Recorded source</th><th style="width:26%">Patient said</th><th>Why they take it</th></tr></thead>
@@ -695,10 +790,13 @@ function renderBody(snap: ReviewSnapshot): string {
 
   ${written}
 
+  <section class="band">
   <div class="foot">
+    <span class="foot-mark">Deterministic detection.<br>Human sign-off.</span>
     Detection is deterministic — a citation-backed table lookup with zero LLM calls; the model
     never decides what is clinically wrong. Ranked options with visible citations, nothing
     time-critical, recommendation resources preliminary/draft pending clinician review (FDA Non-Device CDS posture).
     Synthetic data only.
-  </div>`;
+  </div>
+  </section>`;
 }
