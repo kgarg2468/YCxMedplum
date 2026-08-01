@@ -49,6 +49,18 @@ const config = {
   serverMessages: ['transcript', 'end-of-call-report'],
   ...(webhookUrl ? { server: { url: webhookUrl } } : {}),
   maxDurationSeconds: 1200,
+  // An 82-year-old gathering her pill bottles goes quiet for a while. Vapi's
+  // default 30s silence timeout hangs up on her mid-task (found in live testing);
+  // instead, nudge gently at 20s intervals and only give up after 3 minutes.
+  silenceTimeoutSeconds: 180,
+  messagePlan: {
+    idleMessages: [
+      "Take your time, I'm still here.",
+      'No rush at all. Let me know when you have them.',
+    ],
+    idleTimeoutSeconds: 20,
+    idleMessageMaxSpokenCount: 5,
+  },
 };
 
 async function main() {
