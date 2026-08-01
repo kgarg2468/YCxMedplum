@@ -1,17 +1,62 @@
 # Deprescribe — voice-first medication review on Medplum
 
-Every AI health company is building tools that **add**: more diagnosis, more research,
-more documentation. The highest-return intervention in geriatric medicine is
-**subtraction**, and there is no agent for it.
+Every AI health company is building tools that **add**: more diagnosis, more
+research, more documentation. The highest-return intervention in geriatric
+medicine is **subtraction** — and there is no agent for it, because nobody gets
+paid to take a medication away.
 
-A voice agent interviews an older adult about their medications, then a deterministic
-engine finds potentially inappropriate medications, cumulative anticholinergic burden,
-and **prescribing cascades** — drugs prescribed to treat the side effects of other drugs.
-Everything is written to Medplum as real FHIR resources for clinician review.
+## The problem
+
+**42% of US adults over 65 take five or more daily medications**, and 18.8% are on
+at least one potentially inappropriate medication (2023 ambulatory cohort,
+n=81,295). A structured deprescribing conversation takes thirty minutes and isn't
+reimbursed — so it rarely happens, even though the STOPPFrail trial measured a
+**33:1 cost–benefit ratio** for doing it.
+
+The most invisible version of the problem is the **prescribing cascade**: a drug
+prescribed to treat the side effect of another drug. Our demo patient's chart
+contains a real, literature-documented chain —
+
+> amlodipine (blood pressure) → causes ankle swelling → **furosemide** added →
+> raises uric acid → causes gout → **allopurinol** added
+
+Three drugs; one root cause. Each prescriber acted reasonably; nobody ever asked
+*why each drug was started*. You can only find a cascade by having that
+conversation — which is exactly what makes it agent-shaped work.
+
+## What this does
+
+A voice agent phones the patient before their visit and goes through their pill
+bag with them — names, doses, and critically, *"what do you take that one for?"*,
+where "I don't know" is a recorded answer, not a failure. Then:
+
+```
+  voice call (Vapi · Deepgram STT/TTS · Claude Haiku)
+        │  transcript
+        ▼
+  llm/extract.ts ────────────► SpokenMed[]      LLM, schema-constrained,
+        │                                        allowed to answer "I don't know"
+        ▼
+  rxnav.ts ──────────────────► ResolvedMed[]    NIH RxNorm → canonical ingredient
+        │                                        unresolved ≠ guessed
+        ▼
+  engine/detect.ts ──────────► Finding[]        ★ ZERO LLM CALLS
+        │                                        PIMs · cascades · anticholinergic
+        │                                        burden · duplicates — every finding
+        │                                        carries a real citation
+        ├──► llm/agents.ts     explain / taper / challenger
+        ▼
+  fhir/writers.ts ───────────► Medplum          MedicationStatement, Flag,
+                                                RiskAssessment, DetectedIssue,
+                                                Goal, CarePlan+Task, Communication
+```
+
+Results render on a live review panel (`/review`) and land in Medplum as draft
+FHIR resources for a clinician to approve.
 
 ## The architectural rule
 
-Three categories of work, prompted differently:
+Three kinds of work, three owners:
 
 | Stage | Who does it | Why |
 |---|---|---|
@@ -19,31 +64,19 @@ Three categories of work, prompted differently:
 | **Is this a PIM? Is this a cascade?** | **Deterministic code** | Never let the model decide this |
 | Structured findings → human prose | LLM | Explanation, taper, prescriber note |
 
-`src/engine/detect.ts` contains **no LLM calls**. This is the single most important
-design decision in the repo:
+`src/engine/detect.ts` contains **no LLM calls**. Detection is a hand-curated,
+citation-backed table lookup (AGS Beers 2023, STOPP/START v3, the ACB scale,
+published cascade literature), so the system **cannot hallucinate a drug
+interaction** — and every recommendation shows the clinician its basis. The full
+reasoning behind every design decision is in
+[docs/DECISIONS.md](docs/DECISIONS.md).
 
-1. **Identical output every rehearsal.** The demo cannot surprise you on stage.
-2. **No hallucinated drug interactions.** Ask a model "is this an inappropriate
-   medication?" and it will invent a plausible-sounding cascade at the worst possible
-   moment. A judge with an MD will catch it.
-3. **Every finding carries a real citation**, which is also what keeps this inside
-   FDA's Non-Device CDS "independently review the basis" criterion.
+## Status: working end to end
 
-## Setup
-
-```bash
-npm install
-cp .env.example .env      # fill in ANTHROPIC_API_KEY + Medplum client credentials
-npm run demo:fast         # engine only, no Medplum, no cost — start here
-npm run demo              # full pipeline including FHIR writes
-npm run demo:full         # adds the LLM explanation pass
-npx tsx src/test/engine.test.ts   # pure logic test, no network
-```
-
-Get `demo:fast` printing correct findings **before** touching the voice layer.
-Otherwise you will be debugging two systems at once at 3pm.
-
-## Verified working
+Tested over a **real phone call**: telephony audio garbled drug names
+("Jonipezil", "Burosemide") and the pipeline still resolved them, confirmed the
+cascade chain from the patient's own words, and wrote the FHIR resources to
+Medplum ~15 seconds after hangup. Engine output on the reference case:
 
 ```
 ACB = 8  [oxybutynin:3, diphenhydramine:3, furosemide:1, lorazepam:1]
@@ -56,104 +89,76 @@ ACB = 8  [oxybutynin:3, diphenhydramine:3, furosemide:1, lorazepam:1]
   [moderate] cascade         furosemide -> allopurinol CONFIRMED
   [moderate] cascade         lisinopril -> benzonatate CONFIRMED
   [moderate] no-indication   omeprazole
+  ...
 
 CHAINS: amlodipine -> furosemide -> allopurinol
 ```
 
-That last line is the demo. Three of Margaret's eleven drugs exist only to treat side
-effects of the others.
+## Quickstart
 
-## FHIR resource map — the Medplum differentiator
+No keys needed to see it work:
+
+```bash
+npm install
+npm test                  # deterministic engine, offline — findings above
+npm run panel:canned      # load the demo dataset for the panel
+npm run server            # then open http://localhost:3000/review
+```
+
+With credentials (`cp .env.example .env` — see [docs/SETUP.md](docs/SETUP.md)):
+
+```bash
+npm run demo:fast         # live extraction + RxNorm resolution, no FHIR writes
+npm run seed              # create the synthetic demo patient in Medplum
+npm run demo              # full pipeline including Medplum writes
+npm run vapi:setup <url>  # create/update the voice assistant from code
+```
+
+## The FHIR mapping
 
 | Conversation output | Resource | Note |
 |---|---|---|
-| Current regimen | `MedicationStatement` | What she's *actually* taking vs. what's prescribed |
+| Current regimen | `MedicationStatement` | What she's *actually* taking; unresolved meds keep her verbatim words |
 | PIM hits | `Flag` | One per Beers/STOPP violation, citation in an extension |
-| Anticholinergic burden | `RiskAssessment` | Computed, auditable, with contributors listed |
-| **Prescribing cascade** | **`DetectedIssue`** | **The deep cut — see below** |
-| "I want to feel clear again" | `Goal` | `expressedBy` = patient, not clinician |
+| Anticholinergic burden | `RiskAssessment` | Computed, auditable, contributors listed |
+| **Prescribing cascade** | **`DetectedIssue`** | `implicated[]` in **causal order**; `evidence` records whether the patient reported the linking symptom |
+| "I want to feel clear again" | `Goal` | `expressedBy` = the patient, not the clinician |
 | Taper schedule | `CarePlan` (draft) + `Task` | Real scheduled activities with due dates |
 | Prescriber note | `Communication` (preparation) | Drafted, never auto-sent |
 
-`DetectedIssue` is the one almost nobody uses. Its spec has an `implicated` array of
-references and a `mitigation` element — it was designed for exactly "these two
-resources interact badly." We populate `implicated` **in causal order** (trigger drug
-first, treating drug second) and use `evidence` to record whether the patient actually
-reported the linking symptom. Using it correctly signals you read the spec rather than
-a tutorial.
-
-Note the deliberate statuses: `DetectedIssue.status = preliminary`,
-`CarePlan.status = draft`, `Communication.status = preparation`. Nothing is presented
-as final without a human. That is both honest and the regulatory posture.
-
-## Division of labor (4 people)
-
-| Owner | Files | First deliverable |
-|---|---|---|
-| **A — Voice** | `src/voice/prompt.ts` + Vapi/Retell dashboard | A call that completes and returns a transcript |
-| **B — Extraction** | `src/llm/extract.ts`, `src/rxnav.ts` | Transcript → resolved ingredient list |
-| **C — Engine + data** | `src/data/knowledge.ts`, `src/engine/detect.ts` | `demo:fast` printing findings |
-| **D — FHIR + UI** | `src/fhir/*` | Resources visible in the Medplum console |
-
-These barely touch each other's files. C can work entirely offline against the canned
-transcript in `src/fhir/seed.ts`.
-
-## Hour-by-hour
-
-- **10:00–10:45** Medplum project, ClientApplication credentials, `npm run seed`
-- **10:45–12:15** Voice loop working *ugly*. Don't build turn-taking yourself.
-- **12:15–13:45** Extraction → `MedicationStatement` appearing live in the console
-- **13:45–14:45** Engine + cascade table (this is the differentiator — don't rush it)
-- **14:45–15:45** `CarePlan` taper + prescriber `Communication`
-- **15:45–16:30** Thin review panel. Use Medplum's React components; don't hand-roll.
-- **16:30–17:00** Rehearse three times. **Record a backup video at 16:35.**
-
-## Before Saturday
-
-1. **Spot-check `src/data/knowledge.ts`.** It's a curated high-yield subset, not the
-   complete criteria. Verify against AGS Beers 2023 (doi 10.1111/jgs.18372) and
-   download the actual tapering PDFs from
-   [deprescribing.org](https://deprescribing.org/resources/deprescribing-guidelines-algorithms/)
-   (free, reuse permitted with credit).
-2. **Read the mechanism for the two headline cascades** — donepezil→oxybutynin
-   (Gill 2005) and amlodipine→furosemide (Savage, JAMA Intern Med 2020) — closely
-   enough to explain them when a judge with an MD asks. That question *will* come,
-   and answering it fluently is what separates first from second.
-3. **Run extraction against five recordings of you deliberately mumbling drug names**
-   and check what RxNav returns. That path is where the demo breaks, and it's the only
-   part you can't fix at 16:45.
-4. Read Medplum's Bots docs. Moving the rule engine into a Bot triggered on
-   `MedicationStatement` creation is the platform-native design and a strong line in
-   the pitch.
-
-## API notes that will cost you time if you miss them
-
-Verified against current docs — several widely-copied patterns are now stale:
-
-- **Structured outputs are GA** via `output_config.format` (the old beta
-  `output_format` + `structured-outputs-2025-11-13` header still work during a
-  transition period). Objects need `additionalProperties: false`; no recursive schemas.
-- **Response prefilling is not supported on Claude 4.6+ models.** The old "prefill the
-  assistant turn with `{`" trick to force JSON is dead — use structured outputs.
-- **Current-generation models reject non-default sampling parameters**, so don't pass
-  `temperature`. Determinism here comes from the schema plus keeping clinical logic out
-  of the model entirely, not from `temperature: 0`.
-- Models used: `claude-haiku-4-5-20251001` for the live voice loop (latency is the
-  whole UX), `claude-sonnet-5` for extraction and clinical prose.
+Statuses are deliberate: `preliminary`, `draft`, `preparation`. Nothing is
+presented as final without a human — that is both honest and the regulatory
+posture.
 
 ## Safety and scope
 
-- **Synthetic data only.** Margaret Okonkwo is fictional and tagged `synthetic-demo`.
-  Never put real PHI in a hackathon demo.
-- **Clinician-in-the-loop, always.** The agent gathers and proposes; it never directs.
-  It is explicitly instructed never to tell a patient to stop, start, or change a dose.
-- **Ranked options with visible citations**, never a single directive. FDA's Non-Device
-  CDS criteria (21st Century Cures Act §520(o)(1)(E)) require that the clinician can
-  independently review the basis, so the UI must show the citation and reasoning next
-  to every recommendation. Patient-facing autonomous tapering would be a regulated
-  device.
-- **Not time-critical.** Software driving time-critical decisions is a device
-  regardless of framing.
-- Red flags (fall with head injury, syncope, chest pain, acute confusion change) halt
-  the review and escalate — see `checkRedFlags` in `src/voice/prompt.ts`. Check these
-  against the running transcript on every turn, not only at the end.
+- **Synthetic data only.** The demo patient is fictional and tagged
+  `synthetic-demo`. No real PHI.
+- **Clinician-in-the-loop, always.** The agent gathers and proposes; it never
+  directs. It is explicitly instructed never to tell a patient to stop, start, or
+  change a dose.
+- **Designed against FDA's Non-Device CDS criteria** (21st Century Cures
+  §520(o)(1)(E)): clinician-facing, ranked options with a visible citation on
+  every finding, nothing time-critical. A patient-facing autonomous taper would
+  be a regulated device — this isn't that.
+- **Red flags** (fall with head injury, syncope, chest pain, acute confusion,
+  suicidality) halt the review and escalate, checked on every turn.
+
+## Roadmap
+
+- Rule engine as a **Medplum Bot** triggered on `MedicationStatement` creation —
+  the platform-native design; the engine is already a pure function
+- **Cost & coverage surface** — every stopped drug has a price; deprescribing is
+  the rare intervention that *saves* money (eligibility via Stedi)
+- Grow the knowledge tables toward full STOPP/START coverage with pharmacist
+  review
+- Formal extraction benchmark against real-world med-rec conversations
+- Prescription-history ingestion so cascades can be suspected from records even
+  before the conversation
+
+## Docs
+
+- [TEAM.md](TEAM.md) — quick orientation and where to plug in
+- [docs/DECISIONS.md](docs/DECISIONS.md) — every design decision and why
+- [docs/SETUP.md](docs/SETUP.md) — Medplum + voice platform credentials
+- [docs/DEMO.md](docs/DEMO.md) — presentation scripts
