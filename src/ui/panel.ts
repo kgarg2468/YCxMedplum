@@ -22,6 +22,7 @@
  * projector surface, and identifiers on a projector are a disclosure, not a feature.
  */
 
+import { FONT_FACE_CSS } from './fonts.js';
 import type { ReviewResult, Finding } from '../types.js';
 import type {
   ChartMedicationUseStatus, MedicationGapKind, PatientConcernIntent,
@@ -273,9 +274,7 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Deprescribe — medication review</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anybody:wght@400;600;800&family=Space+Mono:wght@400;700&display=swap">
+<style>${FONT_FACE_CSS}</style>
 <script>
   // Reload only when a NEW review lands — a blind meta-refresh resets scroll
   // position every few seconds, which is unusable mid-presentation.
