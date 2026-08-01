@@ -525,6 +525,22 @@ app.post('/vapi', async (req, res) => {
 
   const msg = req.body?.message;
 
+  // VAPI_DEBUG=1 prints one line per inbound event. Worth having permanently: the
+  // per-turn screener is invisible when it works and equally invisible when the events
+  // never arrive, and those two look identical in the log. This is how you tell a
+  // detection miss from a delivery failure without guessing.
+  if (process.env.VAPI_DEBUG) {
+    const bits = [
+      `type=${msg?.type ?? '(none)'}`,
+      msg?.role ? `role=${msg.role}` : '',
+      msg?.transcriptType ? `transcriptType=${msg.transcriptType}` : '',
+      msg?.status ? `status=${msg.status}` : '',
+      `call.id=${msg?.call?.id ?? 'ABSENT'}`,
+      msg?.transcript ? `text="${String(msg.transcript).slice(0, 60)}"` : '',
+    ].filter(Boolean);
+    emit(`[vapi] ${bits.join('  ')}`);
+  }
+
   // Learn which call is on the phone. This is the ONLY event that reliably carries
   // `call.id`, and both dedupes depend on it, so it must be handled before anything
   // that screens a turn.
