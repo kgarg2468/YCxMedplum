@@ -12,6 +12,7 @@
  * the conversation on a 3-second extraction makes the demo feel broken.
  */
 
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import express from 'express';
 import { MedplumClient } from '@medplum/core';
 import type { Patient } from '@medplum/fhirtypes';
@@ -21,8 +22,21 @@ import { runReview, detectCascadeChains } from './engine/detect.js';
 import { checkRedFlags } from './voice/prompt.js';
 import { persistReview } from './fhir/writers.js';
 import { DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient } from './fhir/seed.js';
+import { renderReviewHtml, type ReviewSnapshot } from './ui/panel.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
+const SNAPSHOT_PATH = 'out/last-review.json';
+
+// The review panel shows the most recent run — live call or canned demo.
+let lastSnapshot: ReviewSnapshot | null = existsSync(SNAPSHOT_PATH)
+  ? JSON.parse(readFileSync(SNAPSHOT_PATH, 'utf8'))
+  : null;
+
+function saveSnapshot(snap: ReviewSnapshot) {
+  lastSnapshot = snap;
+  mkdirSync('out', { recursive: true });
+  writeFileSync(SNAPSHOT_PATH, JSON.stringify(snap, null, 2));
+}
 
 const app = express();
 app.use(express.json());
@@ -86,19 +100,35 @@ app.post('/vapi', async (req, res) => {
     const chains = detectCascadeChains(review.findings.filter((f) => f.kind === 'cascade'));
     for (const c of chains) console.log(`  ★ CHAIN: ${c.join(' → ')}`);
 
+    const snapshot: ReviewSnapshot = {
+      at: new Date().toISOString(), source: 'live-call', review, chains,
+    };
+
     const ctx = await getMedplum();
     if (ctx) {
       const written = await persistReview(ctx.medplum, ctx.patient, review);
+      snapshot.patientId = ctx.patient.id;
+      snapshot.written = {
+        meds: written.meds.length, flags: written.flags.length,
+        cascades: written.cascades.length, goals: written.goals.length,
+        risk: Boolean(written.risk),
+      };
       console.log(
         `→ Medplum: MedicationStatement × ${written.meds.length}, Flag × ${written.flags.length}, ` +
         `DetectedIssue × ${written.cascades.length}, Goal × ${written.goals.length}` +
         `\n→ Open the console at Patient/${ctx.patient.id}`,
       );
     }
+
+    saveSnapshot(snapshot);
+    console.log('→ Review panel updated: http://localhost:3000/review');
   } catch (err) {
     console.error('[pipeline] failed:', err);
   }
 });
+
+app.get('/review', (_req, res) => res.type('html').send(renderReviewHtml(lastSnapshot)));
+app.get('/review.json', (_req, res) => res.json(lastSnapshot));
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 

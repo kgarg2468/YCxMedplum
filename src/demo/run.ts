@@ -11,6 +11,7 @@
  *   --explain   run the LLM explanation pass (slower, costs tokens)
  */
 
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { MedplumClient } from '@medplum/core';
 import { DEMO_TRANSCRIPT, DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient } from '../fhir/seed.js';
 import { extractWithRetry } from '../llm/extract.js';
@@ -19,6 +20,14 @@ import { runReview, detectCascadeChains } from '../engine/detect.js';
 import { explainFinding, buildTaper, challenge } from '../llm/agents.js';
 import { persistReview, writeTaperPlan, writePrescriberMessage } from '../fhir/writers.js';
 import { checkRedFlags } from '../voice/prompt.js';
+import type { ReviewSnapshot } from '../ui/panel.js';
+
+/** Snapshot for the review panel (src/ui/panel.ts, served at /review). */
+function saveSnapshot(snap: ReviewSnapshot) {
+  mkdirSync('out', { recursive: true });
+  writeFileSync('out/last-review.json', JSON.stringify(snap, null, 2));
+  console.log('\n(review panel snapshot → out/last-review.json — view at http://localhost:3000/review)');
+}
 
 const noFhir = process.argv.includes('--no-fhir');
 const doExplain = process.argv.includes('--explain');
@@ -102,7 +111,17 @@ async function main() {
     `cascade reversal. Trial stopping omeprazole.`);
   console.log(`  ${objection}`);
 
+  const snapshot: ReviewSnapshot = {
+    at: new Date().toISOString(),
+    source: 'canned-demo',
+    review,
+    chains,
+    objection,
+    taper: !taper.error && taper.steps?.length ? { drug: 'lorazepam', steps: taper.steps } : null,
+  };
+
   if (noFhir) {
+    saveSnapshot(snapshot);
     console.log('\n(--no-fhir: skipped Medplum writes)');
     return;
   }
@@ -137,6 +156,14 @@ async function main() {
     `\n\nPatient's stated priority: ${review.patientGoals[0] ?? 'not recorded'}\n\n` +
     `Reviewer objection to consider: ${objection}`);
   console.log('  Communication: drafted (status=preparation, not sent)');
+
+  snapshot.patientId = patient.id;
+  snapshot.written = {
+    meds: written.meds.length, flags: written.flags.length,
+    cascades: written.cascades.length, goals: written.goals.length,
+    risk: Boolean(written.risk),
+  };
+  saveSnapshot(snapshot);
 
   console.log(`\n→ Open the Medplum console at Patient/${patient.id}`);
 }
