@@ -28,6 +28,37 @@ export const DEMO_CONDITIONS = [
   'Insomnia',
 ];
 
+/**
+ * ICD-10-CM codings for the seeded conditions. Each code verified against the
+ * CMS FY2026 code set (in effect 2026-08-01, HIPAA-valid). "mild" has no ICD-10
+ * axis for G30, so severity stays in the CodeableConcept text.
+ */
+const ICD10CM = 'http://hl7.org/fhir/sid/icd-10-cm';
+const CONDITION_CODINGS: Record<string, { code: string; display: string }> = {
+  'Alzheimer disease, mild':    { code: 'G30.9',  display: "Alzheimer's disease, unspecified" },
+  'Essential hypertension':     { code: 'I10',    display: 'Essential (primary) hypertension' },
+  'Gout':                       { code: 'M10.9',  display: 'Gout, unspecified' },
+  'Urge urinary incontinence':  { code: 'N39.41', display: 'Urge incontinence' },
+  'Insomnia':                   { code: 'G47.00', display: 'Insomnia, unspecified' },
+};
+
+export const DEMO_BIRTHDATE = '1943-04-12';
+
+/** Whole-year age on a given date (defaults to today). */
+export function ageOn(birthDate: string, on = new Date()): number {
+  const b = new Date(birthDate);
+  let age = on.getFullYear() - b.getFullYear();
+  if (on.getMonth() < b.getMonth() || (on.getMonth() === b.getMonth() && on.getDate() < b.getDate())) age--;
+  return age;
+}
+
+/** "Margaret Okonkwo, 83" — computed from the FHIR resource, never hardcoded. */
+export function patientLabel(p?: Patient): string {
+  const n = p?.name?.[0];
+  const name = n ? [n.given?.join(' '), n.family].filter(Boolean).join(' ') : 'Margaret Okonkwo';
+  return `${name}, ${ageOn(p?.birthDate ?? DEMO_BIRTHDATE)}`;
+}
+
 /** Approximate durations of use, in weeks — drives the duration-gated PIM rules. */
 export const DEMO_DURATIONS: Record<string, number> = {
   lorazepam: 468,   // ~9 years
@@ -84,12 +115,20 @@ Agent: That's very helpful, Margaret. Let me read the list back to you.
 `.trim();
 
 export async function seedDemoPatient(medplum: MedplumClient) {
+  // Idempotent: re-running the seed (or restarting the server) must not create
+  // another Margaret. Search by the stable demographics before creating.
+  const existing = await medplum.searchOne('Patient', `name=Okonkwo&birthdate=${DEMO_BIRTHDATE}`);
+  if (existing) {
+    console.log(`Reusing existing Patient/${existing.id} (idempotent seed).`);
+    return { patient: existing, conditions: [] as Condition[] };
+  }
+
   const patient = await medplum.createResource<Patient>({
     resourceType: 'Patient',
     active: true,
     name: [{ given: ['Margaret'], family: 'Okonkwo' }],
     gender: 'female',
-    birthDate: '1943-04-12',   // 82 years old
+    birthDate: DEMO_BIRTHDATE,
     telecom: [{ system: 'phone', value: '555-0100' }],
     // Marks the record as synthetic so nobody mistakes it for PHI.
     meta: { tag: [{ system: 'https://example.org/tags', code: 'synthetic-demo' }] },
@@ -97,11 +136,16 @@ export async function seedDemoPatient(medplum: MedplumClient) {
 
   const conditions: Condition[] = [];
   for (const text of DEMO_CONDITIONS) {
+    const coding = CONDITION_CODINGS[text];
     conditions.push(await medplum.createResource<Condition>({
       resourceType: 'Condition',
-      clinicalStatus: { coding: [{ code: 'active' }] },
+      clinicalStatus: {
+        coding: [{ system: 'http://terminology.hl7.org/CodeSystem/condition-clinical', code: 'active' }],
+      },
       subject: { reference: `Patient/${patient.id}` },
-      code: { text },
+      code: coding
+        ? { coding: [{ system: ICD10CM, code: coding.code, display: coding.display }], text }
+        : { text },
     }));
   }
 

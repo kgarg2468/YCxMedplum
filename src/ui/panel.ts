@@ -23,8 +23,12 @@ export interface ReviewSnapshot {
   objection?: string;
   taper?: { drug: string; steps: { week: number; dose: string; note: string }[] } | null;
   patientId?: string;
+  /** "Margaret Okonkwo, 83" — computed from the FHIR Patient, never hardcoded. */
+  patientLabel?: string;
   written?: {
     meds: number; flags: number; cascades: number; goals: number; risk: boolean;
+    /** True when a red flag produced an urgent Task. */
+    task?: boolean;
     /** Per-resource detail incl. the note/comment text the console UI buries. */
     resources?: { type: string; id: string; label: string; note?: string }[];
   };
@@ -293,19 +297,21 @@ function renderBody(snap: ReviewSnapshot): string {
         <tr>
           <td><a href="https://app.medplum.com/${r.type}/${r.id}" target="_blank">${r.type}</a></td>
           <td>${esc(r.label)}</td>
-          <td class="muted">${r.note ? esc(r.note) : '—'}</td>
+          <td class="muted">${r.note ? esc(r.note) : '&mdash;'}</td>
         </tr>`).join('')}
       </tbody>
     </table>` : ''}
-    <div class="citation">DetectedIssue carries <code>implicated</code> in causal order. All review resources are
-    <em>preliminary / draft</em> — nothing is final without a clinician.</div>
+    <div class="citation">DetectedIssue carries <code>implicated</code> in causal order. Recommendation resources are
+    written as <em>preliminary / draft / proposed</em> (DetectedIssue&nbsp;preliminary &middot; RiskAssessment&nbsp;preliminary &middot;
+    CarePlan&nbsp;draft &middot; Communication&nbsp;preparation &middot; Goal&nbsp;proposed) — a clinician confirms before anything becomes final.</div>
+
   </div>` : '';
 
   return `
   <div class="brand"><span class="wordmark">Deprescribe<span class="minus"> &minus;</span></span></div>
   <h1>Pre-visit medication review</h1>
   <p class="sub">
-    <span>Margaret Okonkwo, 82</span>
+    <span>${esc(snap.patientLabel ?? 'Synthetic demo patient')}</span>
     <span class="pill">synthetic demo</span>
     <span class="pill${snap.source === 'live-call' ? ' live' : ''}">${snap.source === 'live-call' ? '&#9679; live call' : 'canned demo'}</span>
     <span class="muted">${esc(when)}</span>
@@ -353,7 +359,9 @@ function renderBody(snap: ReviewSnapshot): string {
 
   ${r.redFlags.length ? `
   <div class="redflag">
-    <strong>&#9888; Red flags — review halted &amp; escalated:</strong> ${r.redFlags.map(esc).join('; ')}
+    <strong>&#9888; Red flags — ${snap.written?.task
+      ? 'urgent FHIR Task created for clinician'
+      : 'immediate clinician attention required'}:</strong> ${r.redFlags.map(esc).join('; ')}
   </div>` : ''}
 
   <h2>Findings <span class="count">${r.findings.length}</span></h2>
@@ -407,7 +415,7 @@ function renderBody(snap: ReviewSnapshot): string {
   <div class="foot">
     Detection is deterministic — a citation-backed table lookup with zero LLM calls; the model
     never decides what is clinically wrong. Ranked options with visible citations, nothing
-    time-critical, all resources preliminary/draft pending clinician review (FDA Non-Device CDS posture).
+    time-critical, recommendation resources preliminary/draft pending clinician review (FDA Non-Device CDS posture).
     Synthetic data only.
   </div>`;
 }

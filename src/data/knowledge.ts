@@ -378,3 +378,22 @@ export const NEVER_ABRUPT = new Set([
   'prednisone', 'prednisolone', 'metoprolol', 'atenolol', 'propranolol',
   'carbidopa', 'levodopa', 'clonidine', 'baclofen', 'phenytoin', 'phenobarbital',
 ]);
+
+/**
+ * Every ingredient name in the tables above, deduped. Fed to Deepgram nova-3
+ * keyterm prompting (docs.vapi.ai/customization/custom-keywords) so telephony
+ * ASR stops butchering the exact words the whole pipeline joins on.
+ * No clinical content — purely a spelling list derived from existing rows.
+ */
+export const ALL_INGREDIENT_NAMES: string[] = [...new Set([
+  // Priority order, NOT alphabetical: Deepgram caps keyterms at 100 and this
+  // list is 150+, so the consumer truncates the tail. Detection-critical names
+  // (cascades, PIMs, ACB) must survive; taper/guardrail lists matter only after
+  // a drug is already detected, so they absorb the truncation.
+  ...CASCADES.flatMap((c) => [...c.trigger, ...c.treater]),
+  ...PIM_RULES.flatMap((r) => r.ingredients),
+  ...Object.keys(ACB_SCORES),
+  ...DUPLICATE_CLASSES.flatMap((d) => d.ingredients),
+  ...TAPERS.flatMap((t) => t.ingredients),
+  ...NEVER_ABRUPT,
+])];
