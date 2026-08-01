@@ -13,6 +13,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import express from 'express';
 import { MedplumClient } from '@medplum/core';
 import type { Patient } from '@medplum/fhirtypes';
@@ -20,9 +21,13 @@ import { extractWithRetry } from './llm/extract.js';
 import { resolveAll } from './rxnav.js';
 import { runReview, detectCascadeChains } from './engine/detect.js';
 import { checkRedFlags } from './voice/prompt.js';
-import { persistReview, summarizeWritten } from './fhir/writers.js';
+import { persistReview, summarizeWritten, writeRedFlagFlag } from './fhir/writers.js';
 import { DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient } from './fhir/seed.js';
 import { renderReviewHtml, type ReviewSnapshot } from './ui/panel.js';
+import { runSentinel } from './moss/redflags.js';
+import { warmSentinel } from './moss/session.js';
+import { classOfLexicalReason } from './moss/concepts.js';
+import type { RedFlagClass, RedFlagVerdict, SentinelResult } from './moss/types.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
 const SNAPSHOT_PATH = 'out/last-review.json';
@@ -61,7 +66,17 @@ app.use(express.json());
 let medplum: MedplumClient | null = null;
 let patient: Patient | null = null;
 
+// Memoised. Two callers can now race for it (the per-turn red-flag path and the
+// end-of-call pipeline), and two concurrent first callers must not both seed a
+// second demo patient. A failed login clears the memo so the next call retries.
+let medplumInit: Promise<{ medplum: MedplumClient; patient: Patient } | null> | null = null;
+
 async function getMedplum(): Promise<{ medplum: MedplumClient; patient: Patient } | null> {
+  medplumInit ??= initMedplum().catch((err) => { medplumInit = null; throw err; });
+  return medplumInit;
+}
+
+async function initMedplum(): Promise<{ medplum: MedplumClient; patient: Patient } | null> {
   if (!process.env.MEDPLUM_CLIENT_ID || !process.env.MEDPLUM_CLIENT_SECRET) {
     console.warn('[medplum] no credentials in .env — findings will print to console only');
     return null;
@@ -82,6 +97,210 @@ async function getMedplum(): Promise<{ medplum: MedplumClient; patient: Patient 
 // Calls already handled (by webhook or poller), so the two paths never double-run.
 const processedCalls = new Set<string>();
 
+// ─── Per-turn red-flag screening (Sentinel) ──────────────────────────────────
+//
+// `runSentinel` always runs `checkRedFlags` first and unconditionally, so what is
+// ESCALATED on this path is a strict superset of what the server escalated before:
+// with MOSS_MODE unset it is the same six regexes and nothing else. Everything here
+// happens after the 200 has gone back to Vapi, so none of it is in the voice reply
+// path.
+//
+// State is per call and bounded. A red flag is usually assembled across several quiet
+// turns ("I had a bit of a fall." / "On Sunday." / "I caught my head on the tub."), so
+// the screener needs the preceding turns, not just this one.
+//
+// TWO RULES ABOUT WHAT REACHES A CHART, both of them the result of measurement:
+//
+//  1. A FHIR Flag requires a VERIFIER-CONFIRMED class. Escalating to the console and
+//     writing an active Flag with category "Urgent clinical review" onto a real
+//     patient chart are different acts with different costs. The six regexes fire on
+//     flat denials ("No chest pain, never, my heart's been fine all my life") and on
+//     third-party attribution ("My mother had black stools before she went into
+//     hospital"), measured at 2/32 on the benign fixture set, so a regex hit alone is
+//     not evidence enough for a chart entry. runSentinel now builds a candidate for
+//     lexical hits too, so in `on` mode a genuine regex hit still gets its Flag, it
+//     just gets it on the same evidence as everything else. In `off` and `shadow`
+//     there are no verdicts, so no Flag is written and behaviour is exactly what it
+//     was before Sentinel existed: console plus the end-of-call panel.
+//
+//  2. IDENTITY IS THE CLASS, NEVER THE REASON STRING. Dedupe on the string put two
+//     spellings of the suicidality alarm on one chart, and let a wrong-class
+//     escalation on one turn plus the right class on the next write two Flags for one
+//     fall. `RedFlagClass` is the key everywhere below.
+
+const WINDOW_TURNS = 3;
+/** Cap on tracked calls, so a call whose end-of-call report never arrives cannot leak. */
+const MAX_TRACKED_CALLS = 20;
+/** Cap on stored results per call. A long review is ~40 user turns. */
+const MAX_TURNS_LOGGED = 200;
+
+const turnBuffers = new Map<string, string[]>();
+const sentinelLog = new Map<string, SentinelResult[]>();
+/** Classes already persisted as a Flag for this call, so one class reaches the chart once. */
+const flaggedClasses = new Map<string, Set<RedFlagClass>>();
+
+function forgetCall(callId: string) {
+  turnBuffers.delete(callId);
+  sentinelLog.delete(callId);
+  flaggedClasses.delete(callId);
+}
+
+function trackCall(callId: string) {
+  if (turnBuffers.has(callId)) return;
+  turnBuffers.set(callId, []);
+  // Maps iterate in insertion order, so the first key is the oldest call.
+  while (turnBuffers.size > MAX_TRACKED_CALLS) {
+    const oldest = turnBuffers.keys().next().value;
+    if (!oldest) break;
+    forgetCall(oldest);
+  }
+}
+
+let warnedNoCallId = false;
+
+/**
+ * The key all per-call state hangs off. A missing `msg.call.id` must NOT collapse into
+ * a shared literal like 'unknown': that bucket is never cleared and is shared by every
+ * caller, so one patient's escalation silently suppresses the next patient's Flag for
+ * the same class, for the life of the process, and their words get mixed into one
+ * rolling window.
+ *
+ * So an id-less turn gets a fresh unique key. It is screened and it escalates; it just
+ * has no window and no dedupe. The worst case becomes a duplicate Flag rather than a
+ * missing one, and duplicates are recoverable by a clinician where silence is not. The
+ * LRU in trackCall bounds the throwaway keys.
+ *
+ * Vapi's documented `transcript` server message does not show a `call` object, so this
+ * branch is not hypothetical: confirm against a real call before relying on the window.
+ */
+function callKey(callId: string | undefined): string {
+  if (callId) return callId;
+  if (!warnedNoCallId) {
+    warnedNoCallId = true;
+    console.warn(
+      '[sentinel] transcript events carry no call.id: screening each turn in isolation'
+      + ' (no rolling window, no per-call dedupe, duplicate Flags possible).',
+    );
+  }
+  return `anon:${randomUUID()}`;
+}
+
+/**
+ * Screen one finalised user turn. Never throws.
+ *
+ * runSentinel already swallows everything, but Express 4 does not catch a rejected
+ * async handler and Node turns an unhandled rejection into a dead process. A voice
+ * agent that hangs up mid-call because a red-flag check threw is worse than one that
+ * never had the check, so the belt goes with the braces.
+ */
+async function screenTurn(callId: string, text: string) {
+  try {
+    await screen(callId, text);
+  } catch (err) {
+    console.error('[sentinel] turn screening failed:', err);
+  }
+}
+
+async function screen(callId: string, text: string) {
+  trackCall(callId);
+
+  // Buffer BEFORE the await, not after. In `on` mode runSentinel takes 0.8s to 2.4s
+  // whenever it verifies a candidate, and a turn arriving inside that window used to
+  // see a buffer still missing its predecessor: the rolling window silently failed to
+  // assemble in exactly the fast-short-turns case it exists for. buildWindow tolerates
+  // the current turn already being the last element.
+  const buffer = turnBuffers.get(callId) ?? [];
+  buffer.push(text);
+  const turns = buffer.slice(-WINDOW_TURNS);
+  turnBuffers.set(callId, turns);
+
+  const res = await runSentinel(text, turns);
+
+  const log = sentinelLog.get(callId) ?? [];
+  if (log.length < MAX_TURNS_LOGGED) log.push(res);
+  sentinelLog.set(callId, log);
+
+  if (!res.escalated.length) return;
+  console.warn('⚠ RED FLAG:', res.escalated.join('; '));
+
+  // Rule 1: only a class the verifier actually checked and confirmed reaches a chart.
+  const confirmed = res.verdicts.filter((v) => v.verifierRan && v.confirmed);
+  if (!confirmed.length) return;
+
+  // Rule 2: one Flag per CLASS per call. Without this, a patient who says "I hit my
+  // head" and then answers three follow-up questions about it produces four Flags.
+  const already = flaggedClasses.get(callId) ?? new Set<RedFlagClass>();
+  flaggedClasses.set(callId, already);
+  const fresh = confirmed.filter((v) => !already.has(v.candidate.cls));
+  if (!fresh.length) return;
+
+  // Mark AFTER the write succeeds, never before. Marking first meant one failed
+  // Medplum write permanently consumed the class's single slot: a false positive at
+  // turn 1 whose write failed would silently swallow a genuine crushing chest pain at
+  // turn 12, with no retry and no second error line.
+  // The window as the VERIFIER saw it, so the audit string and the ruling cannot
+  // describe different text. Falls back to the local join only if a candidate is
+  // somehow missing it.
+  const windowText = fresh[0]?.candidate.windowText || turns.join(' ');
+  if (await writeRedFlag(res, windowText, fresh)) {
+    for (const v of fresh) already.add(v.candidate.cls);
+  }
+}
+
+/**
+ * The display string for a confirmed class: the regex's own wording when the regex
+ * caught it too, otherwise the concept table's. One string per class, so the Flag,
+ * the panel banner and the console line cannot disagree about what was escalated.
+ */
+function reasonFor(res: SentinelResult, cls: RedFlagClass): string {
+  return res.lexical.find((r) => classOfLexicalReason(r) === cls)
+    ?? res.candidates.find((c) => c.cls === cls)?.reason
+    ?? cls;
+}
+
+/**
+ * Write the escalation to Medplum as a Flag a clinician has to pick up. Returns true
+ * only if the resource was actually created, because the caller uses that to decide
+ * whether the class may be marked as handled.
+ *
+ * The audit detail travels with it: whoever opens this must be able to answer "why did
+ * a machine escalate this?" without replaying the call. It carries the VERBATIM window
+ * and the closed question that was asked, plus the verifier's quoted span. It does not
+ * carry model prose: the verifier's free-text rationale was fabricating clinical detail
+ * the patient never said, which is worse than no basis at all (see verifyRedFlag.ts).
+ *
+ * The try/catch is the enforcement point for "nothing propagates into the request
+ * path": writeRedFlagFlag deliberately does not swallow its own errors.
+ */
+async function writeRedFlag(
+  res: SentinelResult,
+  windowText: string,
+  verdicts: RedFlagVerdict[],
+): Promise<boolean> {
+  try {
+    const ctx = await getMedplum();
+    if (!ctx) return false;
+
+    const reasons = verdicts.map((v) => reasonFor(res, v.candidate.cls));
+
+    const detail = [
+      `Patient said, verbatim, last ${WINDOW_TURNS} user turns: "${windowText}"`,
+      `Lexical regex: ${res.lexical.length ? res.lexical.join('; ') : 'no match'}`,
+      ...verdicts.map((v) =>
+        `Verifier confirmed ${v.candidate.cls}. Question asked: "${v.candidate.question}"`
+        + ` Evidence: ${v.rationale}`),
+      `Sentinel mode: ${res.mode}`,
+    ].join(' | ');
+
+    const flag = await writeRedFlagFlag(ctx.medplum, ctx.patient, reasons, detail);
+    console.log(`→ Medplum: Flag/${flag.id} (urgent clinical review)`);
+    return true;
+  } catch (err) {
+    console.error('[red-flag] could not write Flag, will retry on the next turn:', err);
+    return false;
+  }
+}
+
 async function runPipeline(transcript: string, callId: string | undefined, via: string) {
   if (callId) {
     if (processedCalls.has(callId)) return;
@@ -90,6 +309,15 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
   try {
     console.log(`\n[call ended, via ${via}] transcript: ${transcript.length} chars — running pipeline`);
 
+    // What the per-turn screener saw. Fetched here rather than after the review so its
+    // escalations can be unioned into review.redFlags: a Sentinel-only escalation
+    // writes a Flag to Medplum, and the panel banner must not be able to disagree with
+    // the chart about what was escalated. checkRedFlags catches none of the held-out
+    // vernacular, so without this union the banner would depend on the end-of-call
+    // extractor independently rediscovering the flag over the whole transcript.
+    const screened = callId ? sentinelLog.get(callId) : undefined;
+    const screenedFlags = (screened ?? []).flatMap((r) => r.escalated);
+
     const ex = await extractWithRetry(transcript);
     const meds = await resolveAll(ex.medications);
     const review = runReview({
@@ -97,7 +325,7 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
       symptoms: ex.symptoms,
       conditions: DEMO_CONDITIONS,
       values: ex.values,
-      redFlags: [...checkRedFlags(transcript), ...ex.red_flags],
+      redFlags: [...new Set([...checkRedFlags(transcript), ...ex.red_flags, ...screenedFlags])],
       durationsWeeks: DEMO_DURATIONS,
     });
 
@@ -111,6 +339,9 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
     const snapshot: ReviewSnapshot = {
       at: new Date().toISOString(), source: 'live-call', review, chains,
     };
+
+    // The panel shows what was proposed, what the verifier ruled, and what escalated.
+    if (screened?.length) snapshot.sentinel = screened;
 
     const ctx = await getMedplum();
     if (ctx) {
@@ -133,6 +364,9 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
     console.log('→ Review panel updated: http://localhost:3000/review');
   } catch (err) {
     console.error('[pipeline] failed:', err);
+  } finally {
+    // The snapshot has the screening record now; the per-call buffers are dead weight.
+    if (callId) forgetCall(callId);
   }
 }
 
@@ -144,8 +378,19 @@ app.post('/vapi', async (req, res) => {
 
   // Per-turn red flag check. Do NOT wait for end of call for this.
   if (msg?.type === 'transcript' && msg.role === 'user') {
-    const flags = checkRedFlags(msg.transcript ?? '');
-    if (flags.length) console.warn('⚠ RED FLAG:', flags.join('; '));
+    // Vapi emits interim partials as well as one final per turn. Screening the
+    // partials meant screening half-sentences ("I hit my"), logging the same flag
+    // several times, and paying for it every keystroke of the ASR.
+    //
+    // The test is `=== 'partial'`, NOT `!== 'final'`. Absence of the field means
+    // SCREEN, because nothing validates this third-party payload and a Vapi event
+    // shape that omits transcriptType would otherwise skip checkRedFlags entirely,
+    // which contradicts "the regexes always run first and unconditionally". Only skip
+    // what is explicitly known to be an interim partial. A duplicate screen on a
+    // re-sent final costs one verifier call and is deduped by class downstream; a
+    // missed final costs the Flag.
+    if (msg.transcriptType === 'partial') return;
+    await screenTurn(callKey(msg.call?.id), msg.transcript ?? '');
     return;
   }
 
@@ -189,4 +434,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.listen(PORT, () => {
   console.log(`Webhook listening on http://localhost:${PORT}/vapi`);
   console.log(`Expose it:  npx localtunnel --port ${PORT}`);
+  // Moss's session() is a ~580ms cloud auth call. Pay it here, while nobody is on the
+  // phone, never on a turn. No-op (and no network) when MOSS_MODE is off. Never rejects.
+  void warmSentinel();
 });

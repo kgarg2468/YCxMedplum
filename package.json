@@ -10,6 +10,8 @@
     "demo:full": "tsx --env-file-if-exists=.env src/demo/run.ts --explain",
     "server": "tsx --env-file-if-exists=.env src/server.ts",
     "test": "tsx src/test/engine.test.ts",
+    "test:redflags": "tsx src/test/redflags.test.ts",
+    "sentinel:measure": "tsx --env-file-if-exists=.env src/test/redflags.live.ts",
     "typecheck": "tsc --noEmit",
     "vapi:setup": "tsx --env-file-if-exists=.env src/voice/createAssistant.ts",
     "panel:canned": "cp demo-assets/canned-review.json out/last-review.json && echo 'Panel reset to full canned dataset — repaints in ~3s'"
