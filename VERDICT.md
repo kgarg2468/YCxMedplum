@@ -177,3 +177,36 @@ The idea was never the risk. The overclaim was. It's fixed for the price of a
 prose sweep, which is the cheapest structural repair anyone will make today.
 
 **"Constantly seek criticism. A well thought out critique of whatever you're doing is as valuable as gold."** (source: Musk, various interviews, incl. SXSW 2018)
+
+---
+
+## 7. "What do we uniquely have?" — the Kahlus / external-data question (11:12am)
+
+Asked directly: can we fold in Kahlus, other repos, or EEG/fMRI/medical data as a
+moat? Verdict after reading Kahlus-V1 on disk: **no on the data, yes on the method.**
+
+- **Kahlus-V1 code/data: rejected.** It's a leakage-controlled neural-translation
+  benchmark (fMRI/EEG future-state forecasting under held-out splits). Zero honest
+  bridge to a FHIR deprescribing agent. Forcing EEG into the demo is the exact
+  integration theater EXECUTE.md bans — Ana would ask "what does the EEG *do* here?"
+  and there is no answer. A fake edge is worse than no edge.
+- **Other repos (robot arms, pupillometry, sites): rejected**, no overlap.
+- **"Todd Comlean" research: not found on disk** (searched whole workspace). If it's
+  external neural-interface work, it's Kahlus-adjacent, not Deprescribe-adjacent.
+
+**What we actually, uniquely have (the real answer to "what does no one else have"):**
+1. A **working voice→FHIR loop tested over a real phone call** — field re-scan at
+   11:05 shows no other team has this yet.
+2. A **refusal in the architecture** — `src/engine/detect.ts` is deterministic; the
+   clinical decision never touches an LLM. "Our agent cannot hallucinate a drug
+   interaction" is a sentence no GPT-in-a-chart team can say.
+3. The **Kahlus rigor *method*, ported to healthcare** — claim gates, "not science"
+   labels, explicit competitor registry, honest-scope discipline. That method is
+   what caught our own Arine overclaim before a judge could. The edge is not
+   proprietary data; it's that we build like people burned by leakage, in a domain
+   where almost no one does.
+
+**The trap named:** reaching for "unique proprietary data" feels safe but hackathons
+are won on a working demo that lands one emotional beat and survives Q&A — which we
+have (pill bag, cascade, live call, deterministic refusal). Data moats are a
+different company. Don't let sunk cost drag fMRI into this room.
