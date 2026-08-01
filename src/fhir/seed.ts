@@ -59,6 +59,25 @@ export function patientLabel(p?: Patient): string {
   return `${name}, ${ageOn(p?.birthDate ?? DEMO_BIRTHDATE)}`;
 }
 
+/**
+ * SYNTHETIC prescriber/practice per drug — the cross-practice fragmentation
+ * dimension. Real deployments would derive this from MedicationRequest.requester;
+ * for the demo it is labeled synthetic everywhere it renders.
+ */
+export const DEMO_PRESCRIBERS: Record<string, string> = {
+  amlodipine: 'Cardiology',
+  lisinopril: 'Cardiology',
+  furosemide: 'Primary care',
+  allopurinol: 'Primary care',
+  omeprazole: 'Primary care',
+  donepezil: 'Neurology',
+  oxybutynin: 'Urology',
+  lorazepam: 'Primary care',
+  benzonatate: 'Urgent care',
+  diphenhydramine: 'Self (OTC)',
+  senna: 'Self (OTC)',
+};
+
 /** Approximate durations of use, in weeks — drives the duration-gated PIM rules. */
 export const DEMO_DURATIONS: Record<string, number> = {
   lorazepam: 468,   // ~9 years
