@@ -63,24 +63,16 @@ async function getMedplum(): Promise<{ medplum: MedplumClient; patient: Patient 
   return { medplum, patient };
 }
 
-app.post('/vapi', async (req, res) => {
-  // Ack immediately — Vapi retries slow webhooks, and nothing below is in the reply path.
-  res.sendStatus(200);
+// Calls already handled (by webhook or poller), so the two paths never double-run.
+const processedCalls = new Set<string>();
 
-  const msg = req.body?.message;
-
-  // Per-turn red flag check. Do NOT wait for end of call for this.
-  if (msg?.type === 'transcript' && msg.role === 'user') {
-    const flags = checkRedFlags(msg.transcript ?? '');
-    if (flags.length) console.warn('⚠ RED FLAG:', flags.join('; '));
-    return;
+async function runPipeline(transcript: string, callId: string | undefined, via: string) {
+  if (callId) {
+    if (processedCalls.has(callId)) return;
+    processedCalls.add(callId);
   }
-
-  if (msg?.type !== 'end-of-call-report') return;
-
   try {
-    const transcript = msg.artifact?.transcript ?? '';
-    console.log(`\n[call ended] transcript: ${transcript.length} chars — running pipeline`);
+    console.log(`\n[call ended, via ${via}] transcript: ${transcript.length} chars — running pipeline`);
 
     const ex = await extractWithRetry(transcript);
     const meds = await resolveAll(ex.medications);
@@ -125,7 +117,52 @@ app.post('/vapi', async (req, res) => {
   } catch (err) {
     console.error('[pipeline] failed:', err);
   }
+}
+
+app.post('/vapi', async (req, res) => {
+  // Ack immediately — Vapi retries slow webhooks, and nothing below is in the reply path.
+  res.sendStatus(200);
+
+  const msg = req.body?.message;
+
+  // Per-turn red flag check. Do NOT wait for end of call for this.
+  if (msg?.type === 'transcript' && msg.role === 'user') {
+    const flags = checkRedFlags(msg.transcript ?? '');
+    if (flags.length) console.warn('⚠ RED FLAG:', flags.join('; '));
+    return;
+  }
+
+  if (msg?.type !== 'end-of-call-report') return;
+  await runPipeline(msg.artifact?.transcript ?? '', msg.call?.id, 'webhook');
 });
+
+/**
+ * Tunnel-free fallback: poll the Vapi API for ended calls and run the pipeline on
+ * their stored transcripts. Free tunnels (localtunnel, localhost.run) drop at will;
+ * this path needs only OUTBOUND https, so the demo works even if the webhook never
+ * arrives. The webhook remains the fast path (and the only per-turn red-flag path);
+ * processedCalls dedupes the two.
+ */
+const serverStart = Date.now();
+async function pollVapiCalls() {
+  if (!process.env.VAPI_API_KEY) return;
+  try {
+    const res = await fetch('https://api.vapi.ai/call?limit=5', {
+      headers: { Authorization: `Bearer ${process.env.VAPI_API_KEY}` },
+    });
+    if (!res.ok) return;
+    const calls: any[] = await res.json();
+    for (const c of calls) {
+      if (c?.status !== 'ended' || processedCalls.has(c.id)) continue;
+      if (!c.endedAt || new Date(c.endedAt).getTime() < serverStart) continue;
+      const transcript = c.artifact?.transcript ?? '';
+      if (transcript) await runPipeline(transcript, c.id, 'poller');
+    }
+  } catch {
+    // Offline or rate-limited — try again next tick.
+  }
+}
+setInterval(pollVapiCalls, 10_000);
 
 app.get('/review', (_req, res) => res.type('html').send(renderReviewHtml(lastSnapshot)));
 app.get('/review.json', (_req, res) => res.json(lastSnapshot));
