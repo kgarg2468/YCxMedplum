@@ -205,6 +205,16 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
     color: color-mix(in srgb, var(--critical) 75%, var(--ink)); font-size: 30px; }
   .hero .caption { margin: 22px 0 0; color: var(--ink-2); font-size: 16.5px; max-width: 68ch; line-height: 1.5; }
 
+  /* Below ~1000px a 3-drug chain wraps and can strand an arrow at the end of a
+     line. Stack instead, arrows pointing down. Guards an unmaximized window on
+     the projector, which is how this actually breaks in a venue. */
+  @media (max-width: 1000px) {
+    .diagram { flex-direction: column; align-items: stretch; gap: 0; }
+    .drug { min-width: 0; }
+    .arrow-col { padding: 6px 0 6px 26px; font-size: 24px; transform: rotate(90deg);
+      transform-origin: 18px center; height: 34px; }
+  }
+
   .redflag {
     margin-top: 20px; border-radius: 14px; padding: 18px 22px;
     background: color-mix(in srgb, var(--critical) 12%, var(--surface));
