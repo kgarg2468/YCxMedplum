@@ -58,7 +58,11 @@ const config = {
   transcriber: { provider: 'deepgram', model: 'nova-3', language: 'en', keyterm: KEYTERMS },
   voice: { provider: 'deepgram', voiceId: 'asteria' },
   // transcript = per-turn red-flag checks; end-of-call-report = the full pipeline.
-  serverMessages: ['transcript', 'end-of-call-report'],
+  // status-update is the only one of the three that reliably carries `call.id`, and the
+  // server latches it so id-less transcript turns can be attributed to the right call.
+  // Without it both escalation dedupes fail and one call leaves a Task and a Flag per
+  // turn on the chart (observed live: four identical suicidality Flags).
+  serverMessages: ['transcript', 'status-update', 'end-of-call-report'],
   ...(webhookUrl ? { server: { url: webhookUrl } } : {}),
   maxDurationSeconds: 1200,
   // An 82-year-old gathering her pill bottles goes quiet for a while. Vapi's

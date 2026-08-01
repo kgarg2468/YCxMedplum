@@ -27,6 +27,7 @@ import { renderReviewHtml, type ReviewSnapshot } from './ui/panel.js';
 import { runSentinel } from './moss/redflags.js';
 import { warmSentinel } from './moss/session.js';
 import { classOfLexicalReason } from './moss/concepts.js';
+import { normaliseRedFlags } from './moss/redflags.js';
 import type { RedFlagClass, RedFlagVerdict, SentinelResult } from './moss/types.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -97,6 +98,28 @@ async function initMedplum(): Promise<{ medplum: MedplumClient; patient: Patient
 // Calls already handled (by webhook or poller), so the two paths never double-run.
 const processedCalls = new Set<string>();
 
+/**
+ * Serialised, atomic line output for the escalation path.
+ *
+ * `npm run server` pipes tsx's stdout through npm, and writes to a pipe are async and
+ * can interleave mid-line. Turns are screened concurrently, so one turn's Flag write
+ * landed inside another turn's alarm and produced this on a live call:
+ *
+ *   ⚠ RED FLAG: F: Flag/5c0229ce-779c-4b24-b9e4-dc5e437716e3 (urgent clinical review)
+ *
+ * The red flag itself was lost from the line. On the one output path whose whole job is
+ * to tell a human that something is wrong, a torn line is not cosmetic. Each call here
+ * is one write, and the chain guarantees ordering.
+ */
+let logChain: Promise<void> = Promise.resolve();
+function emit(line: string): void {
+  logChain = logChain
+    .then(() => new Promise<void>((resolve) => {
+      process.stdout.write(line.endsWith('\n') ? line : `${line}\n`, () => resolve());
+    }))
+    .catch(() => undefined);
+}
+
 // ─── Per-turn red-flag screening (Sentinel) ──────────────────────────────────
 //
 // `runSentinel` always runs `checkRedFlags` first and unconditionally, so what is
@@ -159,27 +182,61 @@ function trackCall(callId: string) {
 let warnedNoCallId = false;
 
 /**
+ * The call currently on the phone, learned from `status-update`.
+ *
+ * Vapi's `transcript` server message carries no `call` object. That is documented, and
+ * a live call confirmed it. The consequence was not one bug but two, because BOTH
+ * dedupes key off the call id: this module's per-class `flaggedClasses` and
+ * `escalateRedFlags`'s `escalatedCalls`. With a fresh synthetic key per turn neither
+ * engaged, so a single call produced one urgent Task AND one Flag per qualifying turn.
+ * A real call left four identical suicidality Flags on one chart, which reads as a
+ * broken system to the clinician it is supposed to help.
+ *
+ * `status-update` DOES carry `call.id`, so latch it there and let id-less transcript
+ * turns attach to it. Correct for one call at a time, which is what a phone line is.
+ * Overlapping calls fall back to the synthetic key and behave exactly as before, which
+ * is degraded but never silent.
+ */
+let currentCall: { id: string; at: number } | null = null;
+
+/** Beyond this, a latched call is stale (a missed `ended` status) and is not reused. */
+const CALL_LATCH_TTL_MS = 30 * 60_000;
+
+function latchCall(callId: string | undefined, status: string | undefined) {
+  if (!callId) return;
+  if (status === 'ended') {
+    if (currentCall?.id === callId) currentCall = null;
+    forgetCall(callId);
+    return;
+  }
+  currentCall = { id: callId, at: Date.now() };
+}
+
+/**
  * The key all per-call state hangs off. A missing `msg.call.id` must NOT collapse into
  * a shared literal like 'unknown': that bucket is never cleared and is shared by every
  * caller, so one patient's escalation silently suppresses the next patient's Flag for
  * the same class, for the life of the process, and their words get mixed into one
  * rolling window.
  *
- * So an id-less turn gets a fresh unique key. It is screened and it escalates; it just
- * has no window and no dedupe. The worst case becomes a duplicate Flag rather than a
- * missing one, and duplicates are recoverable by a clinician where silence is not. The
- * LRU in trackCall bounds the throwaway keys.
- *
- * Vapi's documented `transcript` server message does not show a `call` object, so this
- * branch is not hypothetical: confirm against a real call before relying on the window.
+ * Order of preference: the id on the event, then the latched call, then a fresh unique
+ * key. The last case is screened and escalates; it just has no window and no dedupe, so
+ * the worst case is a duplicate Flag rather than a missing one. Duplicates are
+ * recoverable by a clinician where silence is not.
  */
 function callKey(callId: string | undefined): string {
   if (callId) return callId;
+
+  if (currentCall && Date.now() - currentCall.at < CALL_LATCH_TTL_MS) {
+    return currentCall.id;
+  }
+
   if (!warnedNoCallId) {
     warnedNoCallId = true;
     console.warn(
-      '[sentinel] transcript events carry no call.id: screening each turn in isolation'
-      + ' (no rolling window, no per-call dedupe, duplicate Flags possible).',
+      '[sentinel] transcript events carry no call.id and no call is latched:'
+      + ' screening each turn in isolation (no rolling window, no per-call dedupe,'
+      + ' duplicate Flags possible). Is "status-update" in the assistant serverMessages?',
     );
   }
   return `anon:${randomUUID()}`;
@@ -305,7 +362,7 @@ async function writeRedFlag(
     ].join(' | ');
 
     const flag = await writeRedFlagFlag(ctx.medplum, ctx.patient, reasons, detail);
-    console.log(`→ Medplum: Flag/${flag.id} (urgent clinical review)`);
+    emit(`→ Medplum: Flag/${flag.id} (urgent clinical review)`);
     return true;
   } catch (err) {
     console.error('[red-flag] could not write Flag, will retry on the next turn:', err);
@@ -336,7 +393,7 @@ const escalatedCalls = new Set<string>();
  * Task was written (false when Medplum credentials are absent).
  */
 async function escalateRedFlags(flags: string[], callId?: string): Promise<boolean> {
-  console.warn('⚠ RED FLAG:', flags.join('; '));
+  emit(`⚠ RED FLAG: ${flags.join('; ')}`);
 
   // Dedupe only when we can actually identify the call. Bucketing every
   // id-less turn under one key would let the first such escalation suppress
@@ -357,7 +414,7 @@ async function escalateRedFlags(flags: string[], callId?: string): Promise<boole
       return false;
     }
     const task = await writeRedFlagTask(ctx.medplum, ctx.patient, flags);
-    console.warn(`→ Urgent Task/${task.id} created for clinician`);
+    emit(`→ Urgent Task/${task.id} created for clinician`);
     return true;
   } catch (err) {
     // Release the claim so a transient failure can still be escalated later.
@@ -396,7 +453,7 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
       symptoms: ex.symptoms,
       conditions: DEMO_CONDITIONS,
       values: ex.values,
-      redFlags: [...new Set([...checkRedFlags(transcript), ...ex.red_flags, ...screenedFlags])],
+      redFlags: normaliseRedFlags([...checkRedFlags(transcript), ...ex.red_flags, ...screenedFlags]),
       durationsWeeks: DEMO_DURATIONS,
     });
 
@@ -467,6 +524,14 @@ app.post('/vapi', async (req, res) => {
   res.sendStatus(200);
 
   const msg = req.body?.message;
+
+  // Learn which call is on the phone. This is the ONLY event that reliably carries
+  // `call.id`, and both dedupes depend on it, so it must be handled before anything
+  // that screens a turn.
+  if (msg?.type === 'status-update') {
+    latchCall(msg.call?.id, msg.status);
+    return;
+  }
 
   // Per-turn red flag check. Do NOT wait for end of call for this.
   if (msg?.type === 'transcript' && msg.role === 'user') {

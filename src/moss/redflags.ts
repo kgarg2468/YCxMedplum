@@ -59,7 +59,7 @@
 import type { SessionIndex } from '@moss-dev/moss';
 import type { RedFlagCandidate, RedFlagClass, RedFlagVerdict, SentinelResult } from './types.js';
 import { getSentinelSession, mossMode } from './session.js';
-import { REDFLAG_REASONS, lexicalClasses } from './concepts.js';
+import { REDFLAG_REASONS, lexicalClasses, classOfLexicalReason } from './concepts.js';
 import { checkRedFlags } from '../voice/prompt.js';
 import { verifyRedFlag } from '../llm/verifyRedFlag.js';
 
@@ -240,4 +240,73 @@ async function corroborates(session: SessionIndex, queryText: string): Promise<S
 /** Order-preserving dedupe. Two spellings of the same alarm read as sloppy to a clinician. */
 function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
+}
+
+/**
+ * Collapse the three red-flag sources into one line per condition.
+ *
+ * `review.redFlags` unions the regexes, the LLM extractor's `red_flags`, and whatever
+ * Sentinel escalated per turn. All three describe the same events in different words,
+ * and unioning the raw strings put this on a real chart:
+ *
+ *   Fall with head injury; suicidal statement: "The wish I didn't wake up this
+ *   morning."; fall with head injury: "On Sunday, I ... cracked my head on the
+ *   bathtub."; Suicidal statement, escalate to a human immediately
+ *
+ * Two conditions, said three ways. A clinician reads that as a system that cannot
+ * count.
+ *
+ * So resolve each string to a class and keep one per class. Class resolution tries the
+ * canonical reason table first, then falls back to running the regexes over the string
+ * itself, which is what catches the extractor's free text ("suicidal statement: ...").
+ * Anything that resolves to no class is genuinely novel and is kept verbatim, because
+ * dropping an unrecognised red flag to tidy a string is not a trade worth making.
+ *
+ * The extractor's quotes are not lost: they are the patient's own words, and they still
+ * reach the chart through the Flag's audit extension.
+ */
+/**
+ * Resolve a class from free text by its opening label.
+ *
+ * The extractor writes prose like `suicidal statement: "The wish I didn't wake up this
+ * morning."`. The regexes do not fire on it, because "wish I didn't wake up" is exactly
+ * the vernacular they miss, which is the whole reason Sentinel exists. But the
+ * extractor names the condition in its own first words, and every canonical reason
+ * starts with the same label ("Suicidal statement, escalate to..." / "Fall with head
+ * injury"), so compare against the part before the first comma.
+ *
+ * A heuristic over model prose, so it is used LAST and only ever merges a duplicate.
+ * Anything it fails to resolve is kept verbatim rather than dropped.
+ */
+function classOfLabel(text: string): RedFlagClass | null {
+  const hay = text.toLowerCase();
+  for (const [cls, { reason }] of Object.entries(REDFLAG_REASONS)) {
+    const label = reason.split(',')[0].trim().toLowerCase();
+    if (label.length >= 6 && hay.includes(label)) return cls as RedFlagClass;
+  }
+  return null;
+}
+
+export function normaliseRedFlags(reasons: string[]): string[] {
+  const byClass = new Map<RedFlagClass, string>();
+  const unclassified: string[] = [];
+
+  for (const raw of reasons) {
+    const reason = raw.trim();
+    if (!reason) continue;
+
+    const cls = classOfLexicalReason(reason)                   // exact canonical wording
+      ?? lexicalClasses(checkRedFlags(reason))[0]              // the regexes, run on the text
+      ?? classOfLabel(reason)                                  // the extractor's own prose
+      ?? null;
+    if (!cls) {
+      if (!unclassified.includes(reason)) unclassified.push(reason);
+      continue;
+    }
+    // First writer wins, and the sources are ordered regex, extractor, Sentinel, so the
+    // canonical prompt.ts wording is preferred over the extractor's improvised prose.
+    if (!byClass.has(cls)) byClass.set(cls, REDFLAG_REASONS[cls]?.reason ?? reason);
+  }
+
+  return [...byClass.values(), ...unclassified];
 }
