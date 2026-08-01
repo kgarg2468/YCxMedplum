@@ -46,6 +46,7 @@ const KEYTERMS = [
 const ASSISTANT_NAME = 'Deprescribe medication review';
 const VAPI = 'https://api.vapi.ai';
 const key = process.env.VAPI_API_KEY;
+const credentialId = process.env.VAPI_SERVER_CREDENTIAL_ID;
 const webhookUrl = process.argv[2];
 
 if (!key) {
@@ -76,7 +77,14 @@ const config = {
   voice: { provider: 'deepgram', voiceId: 'asteria' },
   // transcript = per-turn red-flag checks; end-of-call-report = the full pipeline.
   serverMessages: ['transcript', 'end-of-call-report'],
-  ...(webhookUrl ? { server: { url: webhookUrl } } : {}),
+  // The webhook is authenticated with a Vapi Bearer Token Custom Credential:
+  // create the credential in the dashboard with the same secret the server reads
+  // from VAPI_WEBHOOK_SECRET, then put only its ID in VAPI_SERVER_CREDENTIAL_ID.
+  // The secret itself never appears in assistant JSON, logs, or Git.
+  // https://docs.vapi.ai/server-url/server-authentication
+  ...(webhookUrl
+    ? { server: { url: webhookUrl, ...(credentialId ? { credentialId } : {}) } }
+    : {}),
   maxDurationSeconds: 1200,
   // An 82-year-old gathering her pill bottles goes quiet for a while. Vapi's
   // default 30s silence timeout hangs up on her mid-task (found in live testing);
@@ -116,6 +124,11 @@ async function main() {
     console.log('  npx tsx --env-file-if-exists=.env src/voice/createAssistant.ts https://<tunnel>/vapi');
   } else {
     console.log(`Webhook: ${webhookUrl}`);
+    console.log(credentialId
+      ? `Webhook authentication: Custom Credential ${credentialId} (server rejects anything else)`
+      : '\n⚠ VAPI_SERVER_CREDENTIAL_ID is empty — Vapi will send no bearer token and the\n' +
+        '  server will answer 401. Create a Bearer Token Custom Credential whose secret\n' +
+        '  equals VAPI_WEBHOOK_SECRET, then set its ID and re-run this script.');
   }
   console.log('\nTo call it: attach a free phone number in the dashboard (Phone Numbers → Create),');
   console.log('assign this assistant to it, and TEST WITH A REAL PHONE CALL — web-widget audio');

@@ -8,6 +8,8 @@
     "demo": "tsx --env-file-if-exists=.env src/demo/run.ts",
     "demo:fast": "tsx --env-file-if-exists=.env src/demo/run.ts --no-fhir",
     "demo:full": "tsx --env-file-if-exists=.env src/demo/run.ts --explain",
+    "demo:call": "tsx --env-file-if-exists=.env src/demo/startCall.ts",
+    "demo:inspect": "tsx --env-file-if-exists=.env src/demo/inspectChart.ts",
     "server": "tsx --env-file-if-exists=.env src/server.ts",
     "test": "tsx src/fhir/seed.test.ts && tsx src/test/engine.test.ts && tsx src/context/loadChartContext.test.ts && tsx src/context/compareMedicationState.test.ts && tsx src/voice/buildPrefill.test.ts && tsx src/llm/extract.test.ts && tsx src/voice/callCoordinator.test.ts && tsx src/fhir/writers.test.ts && tsx src/ui/panel.test.ts && tsx src/server.test.ts",
     "typecheck": "tsc --noEmit",
