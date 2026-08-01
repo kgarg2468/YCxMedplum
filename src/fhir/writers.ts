@@ -454,3 +454,43 @@ export async function persistReview(
 
   return { meds, flags, risk, cascades, goals, summary };
 }
+
+// ─── Flag (red flag escalation) ──────────────────────────────────────────────
+
+/**
+ * A red flag is a different object from a PIM flag: it is not "this drug is a bad
+ * idea for an 82 year old", it is "a human should look at this today". Same resource
+ * type, different category, so a clinician can filter one from the other.
+ *
+ * The audit trail is the point. Whoever picks this up has to be able to answer "why
+ * did a machine escalate this?" without replaying the call, so the verbatim utterance
+ * and the detection path (lexical regex vs semantic recall plus LLM verifier) travel
+ * with the resource. R4's Flag has no `note` element (unlike MedicationStatement), so
+ * that audit text goes in an extension rather than being silently dropped.
+ *
+ * Nothing here pages anyone. It writes a record a clinician has to pick up.
+ */
+export async function writeRedFlagFlag(
+  medplum: MedplumClient,
+  patient: Patient,
+  reasons: string[],
+  detail: string,
+): Promise<Flag> {
+  return medplum.createResource<Flag>({
+    resourceType: 'Flag',
+    status: 'active',
+    category: [{ text: 'Urgent clinical review' }],
+    code: {
+      text: reasons.length
+        ? reasons.join('; ')
+        : 'Red flag reported during medication review',
+    },
+    subject: ref(patient),
+    period: { start: new Date().toISOString() },
+    author: { display: 'Deprescribing review agent (Sentinel)' },
+    extension: [{
+      url: 'https://ycxmedplum.dev/fhir/StructureDefinition/red-flag-audit',
+      valueString: detail,
+    }],
+  });
+}
