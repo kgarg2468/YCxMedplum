@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { runReview, detectCascadeChains } from '../engine/detect.js';
-import { DEMO_CONDITIONS, DEMO_DURATIONS } from '../fhir/seed.js';
+import { DEMO_CONDITIONS, DEMO_DURATIONS, ageOn, DEMO_BIRTHDATE } from '../fhir/seed.js';
 import type { ResolvedMed, ExtractedSymptom } from '../types.js';
 
 const mk = (ing: string, ind: string | null, strength = ''): ResolvedMed => ({
@@ -71,4 +71,13 @@ const flagged = runReview({
 });
 assert.deepEqual(flagged.redFlags, ['chest pain'], 'red flags must surface in the review result');
 
-console.log('\nALL ASSERTIONS PASSED — hero chain, negative control (0 findings), red-flag passthrough');
+// 4. Age is computed from the calendar date, not from a UTC-parsed Date. A
+//    date-only string parses as UTC midnight, so local getters would shift it a
+//    day earlier west of UTC and under-count the age around the birthday.
+const on = (iso: string) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
+assert.equal(ageOn(DEMO_BIRTHDATE, on('2026-04-11')), 82, 'day before birthday');
+assert.equal(ageOn(DEMO_BIRTHDATE, on('2026-04-12')), 83, 'on birthday');
+assert.equal(ageOn(DEMO_BIRTHDATE, on('2026-04-13')), 83, 'day after birthday');
+assert.equal(ageOn(DEMO_BIRTHDATE, on('2026-12-31')), 83, 'end of year');
+
+console.log('\nALL ASSERTIONS PASSED — hero chain, negative control (0 findings), red-flag passthrough, age boundary');

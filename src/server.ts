@@ -91,18 +91,32 @@ const escalatedCalls = new Set<string>();
  * Task was written (false when Medplum credentials are absent).
  */
 async function escalateRedFlags(flags: string[], callId?: string): Promise<boolean> {
-  // Missing call ids share one dedupe key so a flag can never spam one Task per turn.
-  callId ??= 'no-call-id';
-  if (escalatedCalls.has(callId)) return true;
   console.warn('⚠ RED FLAG:', flags.join('; '));
+
+  // Dedupe only when we can actually identify the call. Bucketing every
+  // id-less turn under one key would let the first such escalation suppress
+  // every later one, silently. On a safety path a duplicate Task is cheap and
+  // a missed one is not, so when in doubt we escalate.
+  if (callId) {
+    if (escalatedCalls.has(callId)) return true;
+    // Claim the id BEFORE awaiting. The per-turn webhook fires this without
+    // awaiting, so marking it only after the write completes lets two turns of
+    // the same call race past the check and create two urgent Tasks.
+    escalatedCalls.add(callId);
+  }
+
   try {
     const ctx = await getMedplum();
-    if (!ctx) return false;
+    if (!ctx) {
+      if (callId) escalatedCalls.delete(callId);
+      return false;
+    }
     const task = await writeRedFlagTask(ctx.medplum, ctx.patient, flags);
-    if (callId) escalatedCalls.add(callId);
     console.warn(`→ Urgent Task/${task.id} created for clinician`);
     return true;
   } catch (err) {
+    // Release the claim so a transient failure can still be escalated later.
+    if (callId) escalatedCalls.delete(callId);
     console.error('[redflag] escalation failed:', err);
     return false;
   }
@@ -113,6 +127,11 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
     if (processedCalls.has(callId)) return;
     processedCalls.add(callId);
   }
+  // Retry is only safe up to the point where we start writing to Medplum. The
+  // writers are create-only, so re-running after a partial write would duplicate
+  // every resource on the patient's chart.
+  let wroteToMedplum = false;
+
   try {
     console.log(`\n[call ended, via ${via}] transcript: ${transcript.length} chars — running pipeline`);
 
@@ -147,6 +166,7 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
 
     const ctx = await getMedplum();
     if (ctx) {
+      wroteToMedplum = true;
       const written = await persistReview(ctx.medplum, ctx.patient, review);
       snapshot.patientId = ctx.patient.id;
       snapshot.patientLabel = patientLabel(ctx.patient);
@@ -166,10 +186,15 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
     saveSnapshot(snapshot);
     console.log('→ Review panel updated: http://localhost:3000/review');
   } catch (err) {
-    // Un-mark the call so the poller can retry after a transient failure
-    // (RxNav timeout, Anthropic 429, Medplum hiccup).
-    if (callId) processedCalls.delete(callId);
-    console.error('[pipeline] failed (will retry via poller):', err);
+    // Un-mark the call so the poller can retry a transient failure (RxNav
+    // timeout, Anthropic 429). Only when nothing was written yet: past that
+    // point a retry would duplicate resources rather than repair anything.
+    const retryable = Boolean(callId) && !wroteToMedplum;
+    if (retryable) processedCalls.delete(callId!);
+    console.error(
+      `[pipeline] failed (${retryable ? 'will retry via poller' : 'not retrying, writes already started'}):`,
+      err,
+    );
   }
 }
 
