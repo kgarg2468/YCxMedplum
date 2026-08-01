@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { runReview, detectCascadeChains } from '../engine/detect.js';
+import { runReview, detectCascadeChains, detectCascades } from '../engine/detect.js';
 import { DEMO_CONDITIONS, DEMO_DURATIONS } from '../fhir/seed.js';
 import type { ResolvedMed, ExtractedSymptom } from '../types.js';
 
@@ -48,6 +48,60 @@ assert.equal(r.findings.length, 12, `expected 12 findings, got ${r.findings.leng
 assert.ok(
   chains.some((c) => c.join('->') === 'amlodipine->furosemide->allopurinol'),
   'hero chain amlodipine -> furosemide -> allopurinol not detected',
+);
+
+// 1b. Curated severity is a property of the RULE, not of the interview.
+//     A patient reporting the linking symptom is EVIDENCE — it raises confidence
+//     and moves the finding up the list. It must never rewrite the severity that
+//     the curated table (and its citation) assigns. Same medication set, no
+//     symptoms and no confirming indications: identical severities.
+const cascadeMeds: ResolvedMed[] = [
+  mk('donepezil', null), mk('oxybutynin', null),
+  mk('amlodipine', null), mk('furosemide', null),
+  mk('allopurinol', null), mk('lisinopril', null),
+  mk('benzonatate', null),
+];
+const silent = runReview({
+  meds: cascadeMeds, symptoms: [], conditions: [], values: [], redFlags: [], durationsWeeks: {},
+});
+const severityByChain = (res: typeof silent) => Object.fromEntries(
+  res.findings.filter((f) => f.kind === 'cascade').map((f) => [f.implicated.join('->'), f.severity]),
+);
+const CURATED = {
+  'donepezil->oxybutynin': 'high',
+  'amlodipine->furosemide': 'high',
+  'furosemide->allopurinol': 'moderate',
+  'lisinopril->benzonatate': 'moderate',
+};
+assert.deepEqual(severityByChain(silent), CURATED,
+  'unconfirmed cascades must keep their curated severity — evidence is not severity');
+assert.ok(
+  silent.findings.filter((f) => f.kind === 'cascade').every((f) => f.symptomConfirmed === false),
+  'with no symptoms and no indications, no cascade may claim the linking symptom was reported',
+);
+
+// The same chains, now with the patient reporting the linking symptoms: the
+// severities are unchanged, only `symptomConfirmed` and the ordering move.
+const heard = runReview({
+  meds: cascadeMeds, symptoms, conditions: [], values: [], redFlags: [], durationsWeeks: {},
+});
+assert.deepEqual(severityByChain(heard), severityByChain(silent),
+  'symptom presence must not change curated cascade severity');
+assert.ok(
+  heard.findings.filter((f) => f.kind === 'cascade').every((f) => f.symptomConfirmed === true),
+  'reported symptoms must surface as confirmed evidence',
+);
+
+// Confirmed cascades sort ahead of unconfirmed ones at the same curated severity.
+const mixed = detectCascades(
+  cascadeMeds,
+  [{ symptom: 'ankle swelling', patient_words: 'ankles were swelling' }],
+);
+const highs = mixed.filter((f) => f.severity === 'high');
+assert.deepEqual(
+  highs.map((f) => f.implicated.join('->')),
+  ['amlodipine->furosemide', 'donepezil->oxybutynin'],
+  'within one severity band, the cascade with reported evidence ranks first',
 );
 
 // 2. Negative control: a clean patient produces ZERO findings. This is the

@@ -38,10 +38,14 @@ import { buildVoicePrefill } from './voice/buildPrefill.js';
 import { compareMedicationState } from './context/compareMedicationState.js';
 import { CallSessionStore, createOutboundCall, type VapiFetch } from './voice/callCoordinator.js';
 import type {
-  CallSession, InterviewContext, PatientReportedMedication, PreparedReview,
+  CallSession, InterviewContext, MedicationGap, PatientReportedMedication, PreparedReview,
+  ReconciledMedicationState,
 } from './context/types.js';
 import type { Extraction, ResolvedMed, SpokenMed } from './types.js';
-import { renderReviewHtml, type ReviewSnapshot } from './ui/panel.js';
+import {
+  renderReviewHtml,
+  type ReviewSnapshot, type SnapshotChartMedication, type SnapshotGap,
+} from './ui/panel.js';
 
 const WEBHOOK_PORT = Number(process.env.PORT ?? 3000);
 const REVIEW_PORT = Number(process.env.REVIEW_PORT ?? 3001);
@@ -279,6 +283,64 @@ async function prepareReview(
   };
 }
 
+// ── snapshot projection (presentation-only: no ids, no links, ever) ─────────
+
+/**
+ * What the patient actually answered for one charted medication. Silence is
+ * `none`, never an assumption of current use — the panel's review-basis line is
+ * built from these and must not overstate what was confirmed.
+ */
+function confirmationFor(
+  alias: string,
+  reconciled: ReconciledMedicationState,
+): SnapshotChartMedication['confirmation'] {
+  const gap = reconciled.gaps.find((g) => g.chartMedication?.alias === alias);
+  if (gap?.confirmation) return gap.confirmation.useStatus;
+  if (gap?.kind === 'use-unclear') return 'unclear';
+  if (reconciled.current.some((m) => m.chartAlias === alias)) return 'taking-as-documented';
+  return 'none';
+}
+
+function chartSummary(
+  context: InterviewContext,
+  reconciled: ReconciledMedicationState,
+): { medications: SnapshotChartMedication[]; conditions: string[] } {
+  return {
+    medications: context.medications.map((m) => ({
+      display: m.display,
+      ingredient: m.ingredient,
+      rxcui: m.rxcui,
+      strength: m.strength,
+      frequency: m.frequency,
+      sourceDisplay: m.sourceDisplay,
+      confirmation: confirmationFor(m.alias, reconciled),
+    })),
+    conditions: context.conditions.map((c) => c.display),
+  };
+}
+
+/** The one line of detail that makes a gap actionable, without any identifier. */
+function gapNote(gap: MedicationGap): string | undefined {
+  const chart = gap.chartMedication;
+  switch (gap.kind) {
+    case 'strength-mismatch':
+      return `chart ${chart?.strength ?? 'unrecorded'} · patient ${gap.confirmation?.reportedStrength ?? gap.patientMedication?.strength ?? 'unclear'}`;
+    case 'frequency-mismatch':
+      return `chart ${chart?.frequency ?? 'unrecorded'} · patient ${gap.confirmation?.reportedFrequency ?? gap.patientMedication?.frequency ?? 'unclear'}`;
+    case 'patient-only':
+      return gap.patientMedication?.patientWords ?? undefined;
+    default:
+      return chart?.sourceDisplay ? `recorded source: ${chart.sourceDisplay}` : undefined;
+  }
+}
+
+function gapSummaries(reconciled: ReconciledMedicationState): SnapshotGap[] {
+  return reconciled.gaps.map((g) => {
+    const note = gapNote(g);
+    return note ? { kind: g.kind, display: g.display, note } : { kind: g.kind, display: g.display };
+  });
+}
+
 /**
  * Escalate red flags NOW — at the turn they were detected, not at end of call.
  * Creates an urgent FHIR Task a clinician queue can pick up. An unlinked call
@@ -344,6 +406,16 @@ async function runPipeline(
 
     const snapshot: ReviewSnapshot = {
       at: deps.now().toISOString(), source: 'live-call', review, chains,
+      concerns: prepared.concerns.map((c) => ({
+        medicationName: c.medicationName, patientWords: c.patientWords, intent: c.intent,
+      })),
+      gaps: gapSummaries(prepared.reconciled),
+      ...(session
+        ? {
+            patientDisplay: patientLabel(session.patient),
+            chart: chartSummary(session.context, prepared.reconciled),
+          }
+        : {}),
     };
 
     // End-of-call safety net: if the per-turn webhook path never fired (e.g. the
@@ -359,13 +431,13 @@ async function runPipeline(
       // resources it already wrote instead of duplicating them.
       const written = await deps.persistReview(medplum, session.patient, review,
         { runId: callId ?? 'live-call' });
-      snapshot.patientId = session.patient.id;
-      snapshot.patientLabel = patientLabel(session.patient);
       snapshot.written = {
         meds: written.meds.length, flags: written.flags.length,
         cascades: written.cascades.length, goals: written.goals.length,
         risk: Boolean(written.risk), task: taskWritten,
-        resources: summarizeWritten(written),
+        // Type, label and note only. The generated ids stay in Medplum: this
+        // snapshot is rendered on a projector.
+        resources: summarizeWritten(written).map(({ type, label, note }) => ({ type, label, note })),
       };
       console.log(
         `→ Medplum: MedicationStatement × ${written.meds.length}, Flag × ${written.flags.length}, ` +

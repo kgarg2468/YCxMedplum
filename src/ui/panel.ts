@@ -1,5 +1,5 @@
 /**
- * The thin review panel (README hour-by-hour, 15:45 slot) — projector edition.
+ * The clinician coordination panel — projector edition.
  *
  * Server-rendered single HTML page, zero external assets — it must work on venue
  * wifi that barely works. Served by src/server.ts at /review; the demo runner also
@@ -11,9 +11,53 @@
  *  - every finding renders its citation (FDA Non-Device CDS: the clinician can
  *    independently review the basis);
  *  - the chained cascade is the hero — it gets the diagram, everything else gets cards.
+ *
+ * WORDING IS A SAFETY CONTROL. The panel presents potential concerns for review:
+ * it never states that a drug caused a symptom, never calls a cascade confirmed,
+ * and never implies a prescriber erred. A reported symptom is shown as evidence
+ * ("Patient reported the linking symptom"), not as proof.
+ *
+ * The snapshot is PRESENTATION-ONLY. No patient id, no chart resource id, no
+ * generated output id, no deep link into a chart ever enters it — the panel is a
+ * projector surface, and identifiers on a projector are a disclosure, not a feature.
  */
 
 import type { ReviewResult, Finding } from '../types.js';
+import type {
+  ChartMedicationUseStatus, MedicationGapKind, PatientConcernIntent,
+} from '../context/types.js';
+
+/** A chart medication, stripped of every identifier before it reaches the page. */
+export interface SnapshotChartMedication {
+  display: string;
+  ingredient: string | null;
+  rxcui: string | null;
+  strength: string | null;
+  frequency: string | null;
+  /** The recorded prescriber/source display. `null` means the chart records none. */
+  sourceDisplay: string | null;
+  /** `none` = the alias was never put to the patient on this call. */
+  confirmation: ChartMedicationUseStatus | 'none';
+}
+
+export interface SnapshotGap {
+  kind: MedicationGapKind;
+  display: string;
+  note?: string;
+}
+
+export interface SnapshotConcern {
+  medicationName: string | null;
+  patientWords: string;
+  intent: PatientConcernIntent;
+}
+
+/** What was written, as prose. Deliberately no id and no link. */
+export interface SnapshotWrittenResource {
+  type: string;
+  label: string;
+  note?: string;
+}
 
 export interface ReviewSnapshot {
   at: string;                       // ISO timestamp of the run
@@ -22,20 +66,134 @@ export interface ReviewSnapshot {
   chains: string[][];
   objection?: string;
   taper?: { drug: string; steps: { week: number; dose: string; note: string }[] } | null;
-  patientId?: string;
   /** "Margaret Okonkwo, 83" — computed from the FHIR Patient, never hardcoded. */
+  patientDisplay?: string;
+  /** Pre-coordination snapshots used this name. Still rendered, never written. */
   patientLabel?: string;
+  chart?: { medications: SnapshotChartMedication[]; conditions: string[] };
+  gaps?: SnapshotGap[];
+  concerns?: SnapshotConcern[];
   written?: {
     meds: number; flags: number; cascades: number; goals: number; risk: boolean;
     /** True when a red flag produced an urgent Task. */
     task?: boolean;
     /** Per-resource detail incl. the note/comment text the console UI buries. */
-    resources?: { type: string; id: string; label: string; note?: string }[];
+    resources?: SnapshotWrittenResource[];
   };
 }
 
 const esc = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const escOr = (s: string | null | undefined, fallback = '&mdash;') =>
+  s && s.trim() ? esc(s) : fallback;
+
+// ── Presentation vocabulary ─────────────────────────────────────────────────
+
+const CONFIRMATION_LABEL: Record<SnapshotChartMedication['confirmation'], string> = {
+  'taking-as-documented': 'Taking as documented',
+  'taking-differently': 'Taking differently',
+  'not-taking': 'Reports not taking it',
+  unclear: 'Use not confirmed',
+  none: 'Not raised on this call',
+};
+
+/** A confirmation is an explicit answer from the patient — silence is not one. */
+const EXPLICIT: ReadonlySet<string> = new Set(['taking-as-documented', 'taking-differently', 'not-taking']);
+
+const GAP_LABEL: Record<MedicationGapKind, string> = {
+  'patient-only': 'Not in the chart — the patient reports taking it',
+  'strength-mismatch': 'Strength differs from the chart',
+  'frequency-mismatch': 'Frequency differs from the chart',
+  'missing-indication': 'No indication recorded or stated',
+  'not-taking': 'In the chart, but the patient reports not taking it',
+  'use-unclear': 'In the chart; current use was not confirmed on this call',
+};
+
+const INTENT_LABEL: Record<PatientConcernIntent, string> = {
+  'concern-only': 'wants it discussed',
+  'discuss-changing': 'wants to discuss changing it',
+  'discuss-stopping': 'wants to discuss stopping it',
+};
+
+type BasisKind = 'confirmed' | 'partial' | 'unconfirmed';
+
+/**
+ * How much of this review actually rests on the patient confirming the chart.
+ * A review nobody confirmed must say so at the top: the worst failure mode of a
+ * medication panel is looking complete when it is not.
+ */
+export function reviewBasis(snap: ReviewSnapshot): { kind: BasisKind; text: string; note: string } {
+  const meds = snap.chart?.medications ?? [];
+  const confirmed = meds.filter((m) => EXPLICIT.has(m.confirmation)).length;
+
+  if (!meds.length || confirmed === 0) {
+    return {
+      kind: 'unconfirmed',
+      text: 'Review based on an unconfirmed medication set',
+      note: 'No charted medication was confirmed with the patient on this run. Treat this as a starting point for review, not a complete medication list.',
+    };
+  }
+  if (confirmed < meds.length) {
+    return {
+      kind: 'partial',
+      text: 'Review based on a partially confirmed medication set',
+      note: `${confirmed} of ${meds.length} charted medications were confirmed with the patient; the rest remain unconfirmed.`,
+    };
+  }
+  return {
+    kind: 'confirmed',
+    text: 'Review based on a confirmed medication set',
+    note: `All ${meds.length} charted medications were put to the patient and answered.`,
+  };
+}
+
+export type SourceRelationLabel = 'Cross-prescriber' | 'Same recorded source' | 'Source relationship unknown';
+
+/**
+ * Join implicated ingredients to their recorded sources — by EXACT ingredient
+ * key only. Never by substring of the source display: two rows both mentioning
+ * "Primary care" are not evidence of anything, and a display that happens to
+ * contain another is not a match. Anything less than a unique, non-null join for
+ * every implicated ingredient is `Source relationship unknown`.
+ */
+export function sourceRelation(
+  implicated: string[],
+  chart: SnapshotChartMedication[] | undefined,
+): { label: SourceRelationLabel; sources: string[] } | null {
+  if (!chart?.length || implicated.length < 2) return null;
+
+  const sources: string[] = [];
+  for (const ing of implicated) {
+    const key = ing.trim().toLowerCase();
+    const rows = chart.filter((m) => (m.ingredient ?? '').trim().toLowerCase() === key);
+    if (rows.length !== 1 || !rows[0].sourceDisplay) {
+      return { label: 'Source relationship unknown', sources: [] };
+    }
+    sources.push(rows[0].sourceDisplay);
+  }
+  const distinct = [...new Set(sources)];
+  if (distinct.length === sources.length) return { label: 'Cross-prescriber', sources: distinct };
+  if (distinct.length === 1) return { label: 'Same recorded source', sources: distinct };
+  return { label: 'Source relationship unknown', sources: distinct };
+}
+
+/** The citation for every curated link in a chain — no finding goes uncited. */
+function citationsFor(chain: string[], cascades: Finding[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < chain.length - 1; i++) {
+    const link = cascades.find((f) => f.implicated[0] === chain[i] && f.implicated[1] === chain[i + 1]);
+    if (link && !out.includes(link.citation)) out.push(link.citation);
+  }
+  return out;
+}
+
+function sourceChip(relation: ReturnType<typeof sourceRelation>): string {
+  if (!relation) return '';
+  const cls = relation.label === 'Cross-prescriber' ? ' cross' : '';
+  const detail = relation.sources.length ? ` &middot; ${relation.sources.map(esc).join(' &middot; ')}` : '';
+  return `<div class="source-chip${cls}">${relation.label}${detail}</div>`;
+}
 
 const SEVERITY = {
   high:     { var: '--critical', icon: '&#9679;', label: 'High' },
@@ -65,12 +223,14 @@ function cascadeFlow(f: Finding): string {
   </div>`;
 }
 
-function findingCard(f: Finding): string {
+function findingCard(f: Finding, chart?: SnapshotChartMedication[]): string {
   const sev = SEVERITY[f.severity];
-  const confirmed = f.kind === 'cascade'
+  // Evidence, stated as evidence. A reported symptom supports the finding; it
+  // does not confirm causation, so the wording never says "confirmed cascade".
+  const evidence = f.kind === 'cascade'
     ? (f.symptomConfirmed
         ? `<div class="confirm yes">&#10003; Patient reported the linking symptom</div>`
-        : `<div class="confirm no">&#9675; Structural only — linking symptom not reported</div>`)
+        : `<div class="confirm no">&#9675; Present in the medication list; linking symptom not reported</div>`)
     : '';
   const body = f.kind === 'cascade'
     ? cascadeFlow(f)
@@ -84,7 +244,8 @@ function findingCard(f: Finding): string {
     </div>
     <div class="finding-label">${esc(f.label)}</div>
     ${body}
-    ${confirmed}
+    ${evidence}
+    ${sourceChip(sourceRelation(f.implicated, chart))}
     ${f.explanation ? `<p class="explain">${esc(f.explanation)}</p>` : ''}
     <div class="citation">${esc(f.citation)}</div>
   </div>`;
@@ -255,6 +416,43 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   .tag.warn { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 40%, var(--border));
     background: color-mix(in srgb, var(--critical) 7%, var(--surface)); }
 
+  /* ── Review basis (never quiet — this is the completeness caveat) ──── */
+  .basis {
+    margin-top: 18px; border-radius: 12px; padding: 14px 18px;
+    border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow);
+    border-left: 5px solid var(--good);
+  }
+  .basis .headline { font-size: 17.5px; font-weight: 700; letter-spacing: -0.01em; }
+  .basis .note { color: var(--ink-2); font-size: 14.5px; margin-top: 4px; }
+  .basis.partial { border-left-color: var(--warning); }
+  .basis.unconfirmed {
+    border-left-color: var(--critical);
+    background: color-mix(in srgb, var(--critical) 8%, var(--surface));
+    border-color: color-mix(in srgb, var(--critical) 35%, var(--border));
+  }
+  .basis .flag { font-size: 12px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+  .basis.unconfirmed .flag { color: color-mix(in srgb, var(--critical) 80%, var(--ink)); }
+
+  /* ── Source relationship chip ───────────────────────────────────────── */
+  .source-chip {
+    margin-top: 10px; display: inline-block; font-size: 12.5px; font-weight: 600;
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 11px; color: var(--ink-2);
+  }
+  .source-chip.cross {
+    color: color-mix(in srgb, var(--critical) 80%, var(--ink));
+    border-color: color-mix(in srgb, var(--critical) 40%, var(--border));
+    background: color-mix(in srgb, var(--critical) 7%, var(--surface));
+  }
+
+  /* ── Patient's own ask ──────────────────────────────────────────────── */
+  .ask { border-left: 5px solid var(--good); }
+  .ask .intent { color: var(--ink-2); font-size: 14px; margin-top: 4px; }
+  .gap { display: flex; gap: 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--hairline); }
+  .gap:last-child { border-bottom: none; }
+  .gap .what { font-weight: 650; min-width: 190px; }
+  .gap .why { color: var(--ink-2); font-size: 14.5px; }
+  .empty-note { color: var(--muted); }
+
   .quote { font-size: 19px; letter-spacing: -0.01em; }
   .foot { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--hairline);
     font-size: 13px; color: var(--muted); max-width: 860px; }
@@ -280,43 +478,93 @@ function renderBody(snap: ReviewSnapshot): string {
     return med?.stated_indication ?? '';
   };
 
-  const consoleLink = snap.patientId
-    ? `<a href="https://app.medplum.com/Patient/${snap.patientId}" target="_blank">Open in Medplum console &#8599;</a>`
-    : '';
+  const chartMeds = snap.chart?.medications;
+  const basis = reviewBasis(snap);
 
-  const written = snap.written ? `
-  <h2>Written to Medplum as FHIR</h2>
+  // The stated priority is usually the same sentence as the concern that was
+  // logged from it. Say it once — a repeated quote on a projector reads as a bug.
+  const spoken = new Set((snap.concerns ?? []).map((c) => c.patientWords.trim()));
+  const extraGoals = r.patientGoals.filter((g) => !spoken.has(g.trim()));
+
+  // ── 5. the hero: the strongest potential cascade, plus any chain ──────────
+  const hero = cascades[0];
+  const heroSection = (hero || snap.chains.length) ? `
+  <h2>Potential prescribing cascade</h2>
+  ${snap.chains.map((chain) => `
+  <div class="hero">
+    <div class="eyebrow">Chained pattern</div>
+    <div class="diagram">
+      ${chain.map((drug, i) => `
+        ${i > 0 ? '<span class="arrow-col">&#10230;</span>' : ''}
+        <span class="drug">
+          <div class="name">${esc(drug)}</div>
+          ${whyFor(drug) ? `<div class="why">&ldquo;${esc(whyFor(drug))}&rdquo;</div>` : ''}
+        </span>`).join('')}
+    </div>
+    <div class="caption"><strong>${chain.length - 1} of these ${chain.length} medications may have been added in response to
+    a side effect of the one before it.</strong> Shown as a potential cascade for clinician review &mdash; the pattern is a
+    prompt to reconsider the earlier medication, not a statement about what happened.</div>
+    ${sourceChip(sourceRelation(chain, chartMeds))}
+    <div class="citation">${citationsFor(chain, cascades).map(esc).join(' &middot; ') || 'Curated cascade rules, cited per link below.'}</div>
+  </div>`).join('')}
+  ${hero ? `
+  <div class="hero" style="--accent: var(${SEVERITY[hero.severity].var})">
+    <div class="finding-head">
+      <span class="sev-chip"><span class="sev-icon">${SEVERITY[hero.severity].icon}</span>${SEVERITY[hero.severity].label}</span>
+      <span class="kind">${KIND_LABEL[hero.kind]}</span>
+    </div>
+    <div class="eyebrow" style="margin-top:10px">${esc(hero.label)}</div>
+    ${cascadeFlow(hero)}
+    <div class="caption"><strong>${esc(hero.implicated[1] ?? '')} may have been added in response to a side effect of
+    ${esc(hero.implicated[0] ?? '')}.</strong>${hero.linkingSymptom ? ` Linking symptom: ${esc(hero.linkingSymptom)}.` : ''}
+    Shown as a potential cascade for clinician review.</div>
+    ${hero.symptomConfirmed
+      ? '<div class="confirm yes">&#10003; Patient reported the linking symptom</div>'
+      : '<div class="confirm no">&#9675; Present in the medication list; linking symptom not reported</div>'}
+    ${sourceChip(sourceRelation(hero.implicated, chartMeds))}
+    <div class="citation">${esc(hero.citation)}</div>
+  </div>` : ''}` : '';
+
+  // ── 8. what actually landed in the record — prose only, no ids, no links ──
+  const w = snap.written;
+  const written = `
+  <h2>FHIR resources written</h2>
   <div class="card">
-    MedicationStatement &times; ${snap.written.meds} &middot; Flag &times; ${snap.written.flags} &middot;
-    DetectedIssue &times; ${snap.written.cascades} &middot; Goal &times; ${snap.written.goals}${snap.written.risk ? ' &middot; RiskAssessment' : ''}
-    ${snap.written.resources?.length ? `
+    ${w ? `MedicationStatement &times; ${w.meds} &middot; Flag &times; ${w.flags} &middot;
+    DetectedIssue &times; ${w.cascades} &middot; Goal &times; ${w.goals}${w.risk ? ' &middot; RiskAssessment' : ''}${w.task ? ' &middot; Task (urgent)' : ''}
+    ${w.resources?.length ? `
     <table style="margin-top:12px">
       <thead><tr><th style="width:190px">Resource</th><th>Content</th><th>Notes written with it</th></tr></thead>
       <tbody>
-      ${snap.written.resources.map((r) => `
+      ${w.resources.map((res) => `
         <tr>
-          <td><a href="https://app.medplum.com/${r.type}/${r.id}" target="_blank">${r.type}</a></td>
-          <td>${esc(r.label)}</td>
-          <td class="muted">${r.note ? esc(r.note) : '&mdash;'}</td>
+          <td>${esc(res.type)}</td>
+          <td>${esc(res.label)}</td>
+          <td class="muted">${res.note ? esc(res.note) : '&mdash;'}</td>
         </tr>`).join('')}
       </tbody>
-    </table>` : ''}
+    </table>` : ''}` : '<span class="empty-note">No FHIR resources were written for this run.</span>'}
     <div class="citation">DetectedIssue carries <code>implicated</code> in causal order. Recommendation resources are
     written as <em>preliminary / draft / proposed</em> (DetectedIssue&nbsp;preliminary &middot; RiskAssessment&nbsp;preliminary &middot;
-    CarePlan&nbsp;draft &middot; Communication&nbsp;preparation &middot; Goal&nbsp;proposed) — a clinician confirms before anything becomes final.</div>
-
-  </div>` : '';
+    CarePlan&nbsp;draft &middot; Communication&nbsp;preparation &middot; Goal&nbsp;proposed) — a clinician confirms before anything becomes final.
+    Resource identifiers stay in Medplum; this page is a projector surface and carries none.</div>
+  </div>`;
 
   return `
   <div class="brand"><span class="wordmark">Deprescribe<span class="minus"> &minus;</span></span></div>
   <h1>Pre-visit medication review</h1>
   <p class="sub">
-    <span>${esc(snap.patientLabel ?? 'Synthetic demo patient')}</span>
+    <span>${esc(snap.patientDisplay ?? snap.patientLabel ?? 'Synthetic demo patient')}</span>
     <span class="pill">synthetic demo</span>
     <span class="pill${snap.source === 'live-call' ? ' live' : ''}">${snap.source === 'live-call' ? '&#9679; live call' : 'canned demo'}</span>
     <span class="muted">${esc(when)}</span>
-    ${consoleLink}
   </p>
+
+  <div class="basis ${basis.kind}">
+    <div class="flag">Review basis</div>
+    <div class="headline">${basis.text}</div>
+    <div class="note">${basis.note}</div>
+  </div>
 
   <div class="tiles">
     <div class="tile" style="--meter-color:${acbColor}; --meter-fill:${acbFill}%; --meter-tick:${acbTick}%">
@@ -336,26 +584,11 @@ function renderBody(snap: ReviewSnapshot): string {
       <div class="note">${r.unresolvedCount ? `${r.unresolvedCount} unresolved &rarr; clinician review` : 'all resolved to RxNorm'}</div>
     </div>
     <div class="tile">
-      <div class="label">Prescribing cascades</div>
+      <div class="label">Potential cascades</div>
       <div class="value">${cascades.length}</div>
-      <div class="note">${confirmedCascades} confirmed by the patient's own symptoms</div>
+      <div class="note">${confirmedCascades} with the linking symptom reported by the patient</div>
     </div>
   </div>
-
-  ${snap.chains.map((chain) => `
-  <div class="hero">
-    <div class="eyebrow">Chained prescribing cascade</div>
-    <div class="diagram">
-      ${chain.map((drug, i) => `
-        ${i > 0 ? '<span class="arrow-col">&#10230;</span>' : ''}
-        <span class="drug">
-          <div class="name">${esc(drug)}</div>
-          ${whyFor(drug) ? `<div class="why">&ldquo;${esc(whyFor(drug))}&rdquo;</div>` : ''}
-        </span>`).join('')}
-    </div>
-    <div class="caption"><strong>${chain.length - 1} of these ${chain.length} drugs exist only to treat side effects of the one before it.</strong>
-    Each was prescribed for a symptom the previous drug caused.</div>
-  </div>`).join('')}
 
   ${r.redFlags.length ? `
   <div class="redflag">
@@ -364,32 +597,54 @@ function renderBody(snap: ReviewSnapshot): string {
       : 'immediate clinician attention required'}:</strong> ${r.redFlags.map(esc).join('; ')}
   </div>` : ''}
 
-  <h2>Findings <span class="count">${r.findings.length}</span></h2>
-  ${r.findings.map(findingCard).join('')}
-
-  <h2>Medications, in the patient's own words <span class="count">${r.meds.length}</span></h2>
-  <div class="card">
-    <table>
-      <thead><tr><th style="width:38%">Patient said</th><th>Resolved</th><th>Why they take it</th></tr></thead>
-      <tbody>
-      ${r.meds.map((m) => `
-        <tr>
-          <td class="said">&ldquo;${esc(m.spoken_as)}&rdquo;</td>
-          <td>${m.ingredient
-            ? `<span class="ing">${esc(m.ingredient)}</span> <span class="rxcui">rxcui ${esc(m.rxcui ?? '')}</span>`
-            : '<span class="tag warn">unresolved &rarr; clinician review</span>'}${m.otc ? '<span class="tag">OTC</span>' : ''}</td>
-          <td>${m.stated_indication ? esc(m.stated_indication) : '<span class="tag warn">none stated</span>'}</td>
-        </tr>`).join('')}
-      </tbody>
-    </table>
+  <h2>What the patient wants addressed</h2>
+  <div class="card ask">
+    ${(snap.concerns ?? []).map((c) => `
+      <div class="quote">&ldquo;${esc(c.patientWords)}&rdquo;</div>
+      <div class="intent">${c.medicationName ? `${esc(c.medicationName)} &mdash; ` : ''}${INTENT_LABEL[c.intent]}</div>`).join('')}
+    ${extraGoals.map((g) => `<div class="quote">&ldquo;${esc(g)}&rdquo;</div>`).join('')}
+    ${!(snap.concerns ?? []).length && !r.patientGoals.length
+      ? '<span class="empty-note">The patient did not raise a specific medication on this call.</span>' : ''}
+    <div class="citation">Recorded verbatim as a FHIR Goal with <code>expressedBy</code> = the patient, not the clinician.
+    Priorities the patient states are review prompts, never instructions to change a medication.</div>
   </div>
 
-  ${r.patientGoals.length ? `
-  <h2>What matters to the patient</h2>
+  <h2>Known before the call ${chartMeds ? `<span class="count">${chartMeds.length}</span>` : ''}</h2>
   <div class="card">
-    ${r.patientGoals.map((g) => `<div class="quote">&ldquo;${esc(g)}&rdquo;</div>`).join('')}
-    <div class="citation">Recorded as FHIR Goal with <code>expressedBy</code> = the patient, not the clinician.</div>
-  </div>` : ''}
+    ${chartMeds?.length ? `
+    <table>
+      <thead><tr><th style="width:32%">Charted medication</th><th style="width:28%">Recorded source</th><th>Dose &amp; frequency</th><th>Confirmed on the call</th></tr></thead>
+      <tbody>
+      ${chartMeds.map((m) => `
+        <tr>
+          <td><span class="ing">${escOr(m.display)}</span>${m.rxcui ? ` <span class="rxcui">rxcui ${esc(m.rxcui)}</span>` : ''}</td>
+          <td>${m.sourceDisplay ? esc(m.sourceDisplay) : '<span class="tag warn">no source recorded</span>'}</td>
+          <td class="muted">${[m.strength, m.frequency].filter(Boolean).map((x) => esc(x!)).join(' &middot; ') || '&mdash;'}</td>
+          <td>${CONFIRMATION_LABEL[m.confirmation]}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>` : '<span class="empty-note">No chart context was loaded for this run — everything below comes from the interview alone.</span>'}
+    ${snap.chart?.conditions?.length
+      ? `<div class="citation">Charted conditions: ${snap.chart.conditions.map(esc).join(' &middot; ')}</div>` : ''}
+  </div>
+
+  <h2>Patient-reported changes or gaps ${snap.gaps ? `<span class="count">${snap.gaps.length}</span>` : ''}</h2>
+  <div class="card">
+    ${snap.gaps?.length ? snap.gaps.map((g) => `
+      <div class="gap">
+        <span class="what">${esc(g.display)}</span>
+        <span class="why">${GAP_LABEL[g.kind]}${g.note ? ` &mdash; ${esc(g.note)}` : ''}</span>
+      </div>`).join('')
+      : `<span class="empty-note">${snap.gaps
+          ? 'The chart and the interview agreed on every medication.'
+          : 'No chart comparison was available for this run.'}</span>`}
+  </div>
+
+  ${heroSection}
+
+  <h2>Other findings <span class="count">${Math.max(0, r.findings.length - (hero ? 1 : 0))}</span></h2>
+  ${r.findings.filter((f) => f !== hero).map((f) => findingCard(f, chartMeds)).join('')
+    || '<div class="card"><span class="empty-note">No further findings.</span></div>'}
 
   ${snap.taper?.steps?.length ? `
   <h2>Draft taper — ${esc(snap.taper.drug)}</h2>
@@ -409,6 +664,34 @@ function renderBody(snap: ReviewSnapshot): string {
     <p class="explain" style="margin:0">${esc(snap.objection)}</p>
     <div class="citation">Generated by an adversarial reviewer agent before any clinician sees the plan.</div>
   </div>` : ''}
+
+  <h2>Medication reconciliation <span class="count">${r.meds.length}</span></h2>
+  <div class="card">
+    <table>
+      <thead><tr><th style="width:26%">Medication</th><th style="width:24%">Recorded source</th><th style="width:26%">Patient said</th><th>Why they take it</th></tr></thead>
+      <tbody>
+      ${r.meds.map((m) => {
+        const key = (m.ingredient ?? '').trim().toLowerCase();
+        const rows = key ? (chartMeds ?? []).filter((c) => (c.ingredient ?? '').trim().toLowerCase() === key) : [];
+        const source = rows.length === 1 && rows[0].sourceDisplay
+          ? esc(rows[0].sourceDisplay)
+          : rows.length === 0
+            ? '<span class="tag warn">not in the chart</span>'
+            : '<span class="tag warn">no single recorded source</span>';
+        return `
+        <tr>
+          <td>${m.ingredient
+            ? `<span class="ing">${esc(m.ingredient)}</span> <span class="rxcui">rxcui ${esc(m.rxcui ?? '')}</span>`
+            : '<span class="tag warn">unresolved &rarr; clinician review</span>'}${m.otc ? '<span class="tag">OTC</span>' : ''}</td>
+          <td>${chartMeds ? source : '<span class="muted">&mdash;</span>'}</td>
+          <td class="said">&ldquo;${esc(m.spoken_as)}&rdquo;</td>
+          <td>${m.stated_indication ? esc(m.stated_indication) : '<span class="tag warn">none stated</span>'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>
+    <div class="citation">Unresolved entries keep the patient's exact words and go to the clinician &mdash; the pipeline never guesses a code.</div>
+  </div>
 
   ${written}
 

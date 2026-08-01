@@ -155,9 +155,14 @@ export function detectCascades(meds: ResolvedMed[], symptoms: ExtractedSymptom[]
     out.push({
       kind: 'cascade',
       implicated: [trigger, treater],
-      // Unconfirmed cascades are downgraded. Structural presence alone is weaker
-      // evidence than the patient reporting the linking symptom.
-      severity: matched ? c.severity : (c.severity === 'high' ? 'moderate' : 'low'),
+      // Severity is a property of the CURATED RULE and its citation, never of
+      // what happened to come up in one interview. Whether the patient reported
+      // the linking symptom is EVIDENCE: it changes confidence and ordering
+      // (below), and it is carried separately as `symptomConfirmed` so a
+      // clinician can see exactly what supports the finding. Downgrading the
+      // rule's severity because a patient did not mention a symptom would make
+      // the same clinical concern read differently for a quiet patient.
+      severity: c.severity,
       label: c.label,
       citation: c.citation,
       symptomConfirmed: Boolean(matched),
@@ -165,8 +170,12 @@ export function detectCascades(meds: ResolvedMed[], symptoms: ExtractedSymptom[]
     });
   }
 
-  // Chained cascades (A→B, B→C) are the most striking finding. Sort them first.
-  out.sort((a, b) => Number(b.symptomConfirmed) - Number(a.symptomConfirmed));
+  // Ordering, not severity, reflects confidence: within a curated severity band
+  // the cascades the patient actually gave evidence for come first.
+  const rank = { high: 0, moderate: 1, low: 2 } as const;
+  out.sort((a, b) =>
+    rank[a.severity] - rank[b.severity]
+    || Number(b.symptomConfirmed) - Number(a.symptomConfirmed));
   return out;
 }
 

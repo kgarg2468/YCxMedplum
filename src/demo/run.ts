@@ -123,7 +123,7 @@ async function main() {
     review,
     chains,
     objection,
-    patientLabel: patientLabel(),
+    patientDisplay: patientLabel(),
     taper: !taper.error && taper.steps?.length ? { drug: 'lorazepam', steps: taper.steps } : null,
   };
 
@@ -167,13 +167,13 @@ async function main() {
     `Reviewer objection to consider: ${objection}`, writeOptions);
   console.log('  Communication: drafted (status=preparation, not sent)');
 
-  snapshot.patientId = patient.id;
-  snapshot.patientLabel = patientLabel(patient);
+  snapshot.patientDisplay = patientLabel(patient);
   snapshot.written = {
     meds: written.meds.length, flags: written.flags.length,
     cascades: written.cascades.length, goals: written.goals.length,
     risk: Boolean(written.risk),
-    resources: summarizeWritten(written),
+    // Presentation-only: the generated ids stay in Medplum, off the panel.
+    resources: summarizeWritten(written).map(({ type, label, note }) => ({ type, label, note })),
   };
   saveSnapshot(snapshot);
 
