@@ -106,9 +106,22 @@ CHAINS: amlodipine -> furosemide -> allopurinol
 No keys needed to see it work:
 
 ```bash
+./run.sh                  # then open http://localhost:3000/review
+```
+
+`run.sh` does the whole local bring-up: preflight, `npm install`, typecheck,
+engine test, seeds the canned panel dataset, starts the server and waits for it
+to answer `/health`. Every command it runs is logged with its exit code and
+duration to `out/run-<timestamp>.log`. Useful flags: `--demo` (live extraction,
+needs `ANTHROPIC_API_KEY`), `--full-demo` (adds Medplum writes), `--no-serve`,
+`--port N`, `-v`. See `./run.sh --help`.
+
+The same steps by hand:
+
+```bash
 npm install
 npm test                  # deterministic engine, offline — findings above
-npm run panel:canned      # load the demo dataset for the panel
+mkdir -p out && npm run panel:canned   # load the demo dataset for the panel
 npm run server            # then open http://localhost:3000/review
 ```
 
