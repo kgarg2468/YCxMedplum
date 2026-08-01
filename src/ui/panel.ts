@@ -362,6 +362,7 @@ function renderBody(snap: ReviewSnapshot): string {
   const r = snap.review;
   const findings = r.findings;
   const cascades = findings.filter((f) => f.kind === 'cascade');
+  const confirmedCascades = cascades.filter((f) => f.symptomConfirmed).length;
   const highCount = findings.filter((f) => f.severity === 'high').length;
   // Older snapshots predate the symptoms field; render nothing rather than crash.
   const symptoms = r.symptoms ?? [];
@@ -396,10 +397,12 @@ function renderBody(snap: ReviewSnapshot): string {
       ${chain.map((drug, i) => {
         const prev = chain[i - 1];
         const link = prev ? linkFor(prev, drug) : undefined;
+        // Only the arrow glyph is decorative. The symptom and "treated with" are
+        // the causal claim itself, so they stay in the accessibility tree.
         const step = prev ? `
-        <div class="step" aria-hidden="true">
+        <div class="step">
           <span class="sym">${esc(link?.linkingSymptom ?? 'side effect')}</span>
-          <span class="glyph">&#10230;</span>
+          <span class="glyph" aria-hidden="true">&#10230;</span>
           <span class="caused">treated with</span>
         </div>` : '';
         const practice = practiceOf(drug);
@@ -439,8 +442,10 @@ function renderBody(snap: ReviewSnapshot): string {
       <div class="chips">
         ${symptoms.map((s) => `<span class="chip" title="${esc(s.patient_words)}">${esc(s.symptom)}</span>`).join('')}
       </div>
-      <p class="attrib">Asked and answered on the same call. Four of these are the linking
-        symptoms that confirmed a cascade.</p>
+      <p class="attrib">Asked and answered on the same call.${confirmedCascades === 0 ? ''
+        : confirmedCascades === 1
+          ? ' One of these is the linking symptom that confirmed a cascade.'
+          : ` ${spell(confirmedCascades)} of these are the linking symptoms that confirmed a cascade.`}</p>
     </div>` : '';
 
   const band = priority || concerns ? `<div class="band">${priority}${concerns}</div>` : '';
