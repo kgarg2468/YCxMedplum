@@ -58,9 +58,14 @@ const config = {
       "Take your time, I'm still here.",
       'No rush at all. Let me know when you have them.',
     ],
-    idleTimeoutSeconds: 20,
-    idleMessageMaxSpokenCount: 5,
+    // 20s/×5 made the agent feel like it was nagging on every pause — nudge
+    // rarely; the 180s silence timeout is the actual safety net.
+    idleTimeoutSeconds: 45,
+    idleMessageMaxSpokenCount: 2,
   },
+  // Deliberately NOT tightening startSpeakingPlan: aggressive endpointing clips
+  // slow elderly speech mid-sentence. Vapi defaults leave natural pauses, which
+  // is correct for this caller population — some blank air is fine.
 };
 
 async function main() {
