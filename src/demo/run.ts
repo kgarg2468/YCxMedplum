@@ -13,7 +13,7 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { MedplumClient } from '@medplum/core';
-import { DEMO_TRANSCRIPT, DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient } from '../fhir/seed.js';
+import { DEMO_TRANSCRIPT, DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient, patientLabel } from '../fhir/seed.js';
 import { extractWithRetry } from '../llm/extract.js';
 import { resolveAll } from '../rxnav.js';
 import { runReview, detectCascadeChains } from '../engine/detect.js';
@@ -117,6 +117,7 @@ async function main() {
     review,
     chains,
     objection,
+    patientLabel: patientLabel(),
     taper: !taper.error && taper.steps?.length ? { drug: 'lorazepam', steps: taper.steps } : null,
   };
 
@@ -149,7 +150,7 @@ async function main() {
   }
 
   await writePrescriberMessage(medplum, patient,
-    `Pre-visit medication review for Margaret Okonkwo (82).\n\n` +
+    `Pre-visit medication review for ${patientLabel(patient)}.\n\n` +
     `Anticholinergic burden ${review.acbScore}. ${review.findings.length} findings, ` +
     `${chains.length} chained prescribing cascade(s).\n\n` +
     review.findings.slice(0, 5).map((f) => `• ${f.label} — ${f.citation}`).join('\n') +
@@ -158,6 +159,7 @@ async function main() {
   console.log('  Communication: drafted (status=preparation, not sent)');
 
   snapshot.patientId = patient.id;
+  snapshot.patientLabel = patientLabel(patient);
   snapshot.written = {
     meds: written.meds.length, flags: written.flags.length,
     cascades: written.cascades.length, goals: written.goals.length,

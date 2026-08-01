@@ -20,8 +20,8 @@ import { extractWithRetry } from './llm/extract.js';
 import { resolveAll } from './rxnav.js';
 import { runReview, detectCascadeChains } from './engine/detect.js';
 import { checkRedFlags } from './voice/prompt.js';
-import { persistReview } from './fhir/writers.js';
-import { DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient } from './fhir/seed.js';
+import { persistReview, writeRedFlagTask } from './fhir/writers.js';
+import { DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient, patientLabel } from './fhir/seed.js';
 import { renderReviewHtml, type ReviewSnapshot } from './ui/panel.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
@@ -82,6 +82,32 @@ async function getMedplum(): Promise<{ medplum: MedplumClient; patient: Patient 
 // Calls already handled (by webhook or poller), so the two paths never double-run.
 const processedCalls = new Set<string>();
 
+// One urgent Task per call, even though red flags are checked every turn.
+const escalatedCalls = new Set<string>();
+
+/**
+ * Escalate red flags NOW — at the turn they were detected, not at end of call.
+ * Creates an urgent FHIR Task a clinician queue can pick up. Returns true if the
+ * Task was written (false when Medplum credentials are absent).
+ */
+async function escalateRedFlags(flags: string[], callId?: string): Promise<boolean> {
+  // Missing call ids share one dedupe key so a flag can never spam one Task per turn.
+  callId ??= 'no-call-id';
+  if (escalatedCalls.has(callId)) return true;
+  console.warn('⚠ RED FLAG:', flags.join('; '));
+  try {
+    const ctx = await getMedplum();
+    if (!ctx) return false;
+    const task = await writeRedFlagTask(ctx.medplum, ctx.patient, flags);
+    if (callId) escalatedCalls.add(callId);
+    console.warn(`→ Urgent Task/${task.id} created for clinician`);
+    return true;
+  } catch (err) {
+    console.error('[redflag] escalation failed:', err);
+    return false;
+  }
+}
+
 async function runPipeline(transcript: string, callId: string | undefined, via: string) {
   if (callId) {
     if (processedCalls.has(callId)) return;
@@ -112,14 +138,22 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
       at: new Date().toISOString(), source: 'live-call', review, chains,
     };
 
+    // End-of-call safety net: if the per-turn webhook path never fired (e.g. the
+    // poller found this call), the red flags still get their urgent Task here.
+    let taskWritten = false;
+    if (review.redFlags.length) {
+      taskWritten = await escalateRedFlags(review.redFlags, callId);
+    }
+
     const ctx = await getMedplum();
     if (ctx) {
       const written = await persistReview(ctx.medplum, ctx.patient, review);
       snapshot.patientId = ctx.patient.id;
+      snapshot.patientLabel = patientLabel(ctx.patient);
       snapshot.written = {
         meds: written.meds.length, flags: written.flags.length,
         cascades: written.cascades.length, goals: written.goals.length,
-        risk: Boolean(written.risk),
+        risk: Boolean(written.risk), task: taskWritten,
       };
       console.log(
         `→ Medplum: MedicationStatement × ${written.meds.length}, Flag × ${written.flags.length}, ` +
@@ -131,7 +165,10 @@ async function runPipeline(transcript: string, callId: string | undefined, via: 
     saveSnapshot(snapshot);
     console.log('→ Review panel updated: http://localhost:3000/review');
   } catch (err) {
-    console.error('[pipeline] failed:', err);
+    // Un-mark the call so the poller can retry after a transient failure
+    // (RxNav timeout, Anthropic 429, Medplum hiccup).
+    if (callId) processedCalls.delete(callId);
+    console.error('[pipeline] failed (will retry via poller):', err);
   }
 }
 
@@ -144,7 +181,7 @@ app.post('/vapi', async (req, res) => {
   // Per-turn red flag check. Do NOT wait for end of call for this.
   if (msg?.type === 'transcript' && msg.role === 'user') {
     const flags = checkRedFlags(msg.transcript ?? '');
-    if (flags.length) console.warn('⚠ RED FLAG:', flags.join('; '));
+    if (flags.length) void escalateRedFlags(flags, msg.call?.id);
     return;
   }
 
