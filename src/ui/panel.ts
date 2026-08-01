@@ -358,8 +358,8 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
     --sev-low:  #3F4FA8;
     --good: #0B7A4B;
 
-    --display: "Anybody", "Helvetica Neue", Arial, sans-serif;
-    --mono: "Space Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --display: "Montserrat", "Helvetica Neue", Verdana, Arial, sans-serif;
+    --mono: "Montserrat", "Helvetica Neue", Verdana, Arial, sans-serif;
   }
   * { box-sizing: border-box; border-radius: 0 !important; }
   html, body { height: 100%; overflow: hidden; }
@@ -467,14 +467,14 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
   }
 
   /* ── Tables ──────────────────────────────────────────────────────────── */
-  table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11.5px; table-layout: fixed; }
   thead th {
     position: sticky; top: 0; z-index: 1; background: var(--surface);
     text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: 1px;
     color: var(--ink-50); font-weight: 700; padding: 9px 10px 7px 0;
     border-bottom: 1px solid var(--hairline-strong);
   }
-  td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; line-height: 1.5; }
+  td { padding: 9px 10px 9px 0; border-bottom: 1px solid var(--hairline); vertical-align: top; line-height: 1.5; overflow-wrap: break-word; }
   tr:last-child td { border-bottom: none; }
   td.num { font-variant-numeric: tabular-nums; }
   .ing { font-family: var(--display); font-weight: 700; font-size: 12.5px; letter-spacing: -.3px; }
