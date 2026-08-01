@@ -115,6 +115,42 @@
 % the hospital days in prospective cohorts."
 
 % ============================================================================
+% OPENING STAT — the first sentence of DEMO-2MIN.md. Stat gate CLOSED.
+% Verified 2026-08-01 against the live CDC page and the primary JAMA paper.
+% ============================================================================
+@misc{cdc_ade_faststats,
+  author       = {{Centers for Disease Control and Prevention}},
+  title        = {Medication Safety: Data and Statistics (FastStats)},
+  howpublished = {\url{https://www.cdc.gov/medication-safety/data-research/facts-stats/index.html}},
+  year         = {2026}, note = {Verified 2026-08-01}
+}
+% VERIFIED, safe to say verbatim:
+%   "More than 1.5 million people visit US emergency departments for adverse drug
+%    events each year; almost 500,000 require hospitalization."
+%   "Adults 65+ visit EDs more than 600,000 times each year for ADEs, more than
+%    twice as often as younger people."
+
+@article{shehab2016ade,
+  author  = {Shehab, Nadine and Lovegrove, Maribeth C. and Geller, Andrew I. and
+             Rose, Kathleen O. and Weidle, Nina J. and Budnitz, Daniel S.},
+  title   = {US Emergency Department Visits for Outpatient Adverse Drug Events,
+             2013--2014},
+  journal = {JAMA}, year = {2016}, doi = {10.1001/jama.2016.16201},
+  note    = {PMID: 27893129}
+}
+% ⚠️ KNOW THIS BEFORE OPENING ON THE 1.5M NUMBER. In adults 65+, THREE drug
+% classes — anticoagulants, diabetes agents, opioid analgesics — account for
+% ~59.9% of those ED visits. Our engine targets Beers / anticholinergic /
+% cascade drugs, which are largely NOT those three.
+% If a judge says "your tool doesn't touch the drugs actually sending people to
+% the ER", the honest answer is:
+%   "Correct, and we don't claim that number as our addressable market. It's the
+%    scale of medication harm, not our target. What we address is the subset
+%    nobody is staffed to catch: the drugs that are only there because of another
+%    drug. Different mechanism, and it needs a conversation to find."
+% Do NOT imply the 1.5M is preventable by this product.
+
+% ============================================================================
 % ⚠️ WARNINGS — claims the evidence does NOT support (fix before freeze)
 % ============================================================================
 % 1. "33:1 STOPPFrail return" — NOT located in the primary RCT. Curtin 2020 shows
