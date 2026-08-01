@@ -48,6 +48,23 @@ const MARGARET = {
   birthDate: '1943-04-12',   // 82 years old
 } as const;
 
+export const DEMO_BIRTHDATE = MARGARET.birthDate;
+
+/** Whole-year age on a given date (defaults to today). */
+export function ageOn(birthDate: string, on = new Date()): number {
+  const b = new Date(birthDate);
+  let age = on.getFullYear() - b.getFullYear();
+  if (on.getMonth() < b.getMonth() || (on.getMonth() === b.getMonth() && on.getDate() < b.getDate())) age--;
+  return age;
+}
+
+/** "Margaret Okonkwo, 83" — computed from the FHIR resource, never hardcoded. */
+export function patientLabel(p?: Patient): string {
+  const n = p?.name?.[0];
+  const name = n ? [n.given?.join(' '), n.family].filter(Boolean).join(' ') : 'Margaret Okonkwo';
+  return `${name}, ${ageOn(p?.birthDate ?? DEMO_BIRTHDATE)}`;
+}
+
 export const DEMO_CONDITIONS = [
   'Alzheimer disease, mild',
   'Essential hypertension',
