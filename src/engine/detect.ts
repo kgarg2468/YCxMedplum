@@ -144,7 +144,13 @@ export function detectCascades(meds: ResolvedMed[], symptoms: ExtractedSymptom[]
     const treater = c.treater.find((t) => keys.has(t));
     if (!trigger || !treater) continue;
 
-    const matched = symptomMatches(symptoms, c.symptomKeywords);
+    // The treater's stated indication is itself confirmation of the linking
+    // symptom: "what do you take the allopurinol for?" — "the gout" IS the
+    // patient reporting the symptom, even if it never appears in the symptom list.
+    const treaterIndication = (keys.get(treater)?.stated_indication ?? '').toLowerCase();
+    const matched = symptomMatches(symptoms, c.symptomKeywords)
+      ?? c.symptomKeywords.find((kw) => treaterIndication.includes(kw.toLowerCase()))
+      ?? null;
 
     out.push({
       kind: 'cascade',

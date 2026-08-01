@@ -141,7 +141,7 @@ export async function buildTaper(
     system: TAPER_SYSTEM,
     user,
     schema: TAPER_SCHEMA as unknown as Record<string, unknown>,
-    maxTokens: 2000,
+    maxTokens: 6000,
   });
 }
 
