@@ -1,186 +1,197 @@
-# Deprescribe — voice-first medication review on Medplum
+<div align="center">
 
-Every AI health company is building tools that **add**: more diagnosis, more
-research, more documentation. The highest-return intervention in geriatric
-medicine is **subtraction**. Medication review is a funded category — CMS
-mandates it, analytics vendors fire 40M+ recommendations a year at pharmacist
-call centers — yet 18.8% of seniors are *still* on an inappropriate med, because
-the paid version is a compliance checkbox. The conversation that actually finds
-a prescribing cascade is the part no one's system does. That's what we built.
+# YCxMedplum
 
-## The problem
+### One medication story. One coordinated review.
 
-**42% of US adults over 65 take five or more daily medications**, and 18.8% are on
-at least one potentially inappropriate medication (2023 ambulatory cohort,
-n=81,295). A structured deprescribing conversation takes thirty minutes and isn't
-reimbursed — so it rarely happens, even though the STOPPFrail trial measured a
-**−2.6 medications per patient and lower drug costs, with no detected harm** in a randomized trial of doing it (STOPPFrail RCT, Curtin 2020, JAGS; see docs/EVIDENCE.bib).
+YCxMedplum is a TypeScript/Node.js agentic healthcare workflow that combines a synthetic patient's Medplum chart with one voice interview, reconciles what the chart says with what the patient reports, and prepares evidence-linked FHIR review artifacts for the authorized care team.
 
-The most invisible version of the problem is the **prescribing cascade**: a drug
-prescribed to treat the side effect of another drug. Our demo patient's chart
-contains a real, literature-documented chain —
+Built for the **YC × Medplum Agentic Healthcare Hackathon**.
 
-> amlodipine (blood pressure) → causes ankle swelling → **furosemide** added →
-> raises uric acid → causes gout → **allopurinol** added
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=nodedotjs&logoColor=white)
+![FHIR R4](https://img.shields.io/badge/FHIR-R4-E34F26)
+![Medplum](https://img.shields.io/badge/Medplum-integrated-6B4EFF)
+![Moss](https://img.shields.io/badge/Moss-Sentinel-111111)
+![Tests](https://img.shields.io/badge/tests-offline%20regression-0B7A4B)
 
-Three drugs; one root cause. Each prescriber acted reasonably; nobody ever asked
-*why each drug was started*. You can only find a cascade by having that
-conversation — which is exactly what makes it agent-shaped work.
+</div>
 
-## What this does
+## The thesis
 
-A voice agent phones the patient before their visit and goes through their pill
-bag with them — names, doses, and critically, *"what do you take that one for?"*,
-where "I don't know" is a recorded answer, not a failure. Then:
+**Three medications. One potential root cause.**
 
+An older adult may receive amlodipine for blood pressure, then furosemide after ankle swelling, then allopurinol after gout. Each prescription can look reasonable in isolation. The medication story becomes visible only when the chart, the patient's chronology, and every prescriber are reviewed together.
+
+YCxMedplum gives the patient one conversation and gives clinicians one independently checkable review. It does not diagnose, establish causality, or order medication changes.
+
+## Headline result
+
+The checked-in synthetic regression fixture produces:
+
+| Proof point | Validated result |
+|---|---:|
+| Active prescriptions loaded from Medplum | **9** |
+| Fictional practitioners represented | **5** |
+| Anticholinergic Cognitive Burden | **8** |
+| Potential findings in the engine fixture | **12** |
+| Hero chain | **amlodipine → furosemide → allopurinol** |
+| Clean negative control | **0 findings, ACB 0** |
+
+These are deterministic fixture results, not clinical outcomes. Findings are potential review items whose citations and patient-reported supporting history remain visible to a clinician.
+
+## The loop
+
+```mermaid
+flowchart LR
+    A[Medplum chart<br/>9 prescriptions · 5 practitioners] --> B[Vapi phone call]
+    B --> C[Deepgram Nova-3 + Aura<br/>medication keyterm boosting]
+    C --> D[Claude Haiku conversation]
+    D --> E[Claude Sonnet<br/>schema-constrained extraction]
+    E --> F[RxNorm normalization]
+    F --> G[Deterministic review engine<br/>rules + citations]
+    G --> H[Coordination panel]
+    G --> I[Preliminary / proposed FHIR]
+    C --> J[Moss Sentinel<br/>semantic red-flag recall]
+    J --> K[Fail-closed verifier]
+    K --> I
 ```
-  voice call (Vapi · Deepgram STT/TTS · Claude Haiku)
-        │  transcript
-        ▼
-  llm/extract.ts ────────────► SpokenMed[]      LLM, schema-constrained,
-        │                                        allowed to answer "I don't know"
-        ▼
-  rxnav.ts ──────────────────► ResolvedMed[]    NIH RxNorm → canonical ingredient
-        │                                        unresolved ≠ guessed
-        ▼
-  engine/detect.ts ──────────► Finding[]        ★ ZERO LLM CALLS
-        │                                        PIMs · cascades · anticholinergic
-        │                                        burden · duplicates — every finding
-        │                                        carries a real citation
-        ├──► llm/agents.ts     explain / taper / challenger
-        ▼
-  fhir/writers.ts ───────────► Medplum          MedicationStatement, Flag,
-                                                RiskAssessment, DetectedIssue,
-                                                Goal, CarePlan+Task, Communication
-```
 
-Results render on a live review panel (`/review`) and land in Medplum as draft
-FHIR resources for a clinician to approve.
+The chart is loaded before the call. Current medications are passed to Vapi as presentation-safe dynamic variables, so the patient confirms known medicines and fills gaps instead of repeating an inventory from scratch. After the call, structured extraction and RxNorm resolution feed the deterministic clinical engine. The panel and FHIR resources show what the chart knew, what the patient added or contradicted, and what the care team may want to review.
 
-## The architectural rule
+Sentinel is a separate urgent-safety seam. Lexical checks always run first. With `MOSS_MODE=on`, Moss adds semantic red-flag candidates from natural patient language; a closed, quote-checked verifier must confirm a candidate before an evidence-bearing `Flag` is written. Failures fall back to the lexical baseline.
 
-Three kinds of work, three owners:
+## Why it is a strong agentic healthcare workflow
 
-| Stage | Who does it | Why |
+- **Patient-centered:** one call captures medication use, gaps, symptoms, concerns, and the patient's priorities.
+- **Clinician-enhancing:** the agent prepares a ranked, cited coordination artifact; clinicians retain the decision and prescribing authority.
+- **Standards-based:** chart input and review output use Medplum and FHIR R4 resources rather than a parallel proprietary record.
+- **Independently checkable:** clinical detection is a versioned rule table with source citations, while the negative control proves the engine can return nothing.
+
+## Architecture
+
+| Layer | Stack | Role |
 |---|---|---|
-| Messy speech → structured data | LLM | This is what LLMs are for |
-| **Is this a PIM? Is this a cascade?** | **Deterministic code** | Never let the model decide this |
-| Structured findings → human prose | LLM | Explanation, taper, prescriber note |
+| Longitudinal record | Medplum, FHIR R4 | Patient, practitioner, condition, and medication history; scoped synthetic write-back |
+| Conversation | Vapi, Claude Haiku | Outbound call orchestration and short, chart-prefilled interview turns |
+| Speech | Deepgram Nova-3 and Aura through Vapi | Transcription and speech, with medication and safety keyterm boosting |
+| Structured understanding | Claude Sonnet | Schema-constrained extraction and explanation; no clinical rule selection |
+| Identity | RxNorm / RxNav | Normalize newly reported products to medication identity, with explicit unresolved states |
+| Semantic safety recall | Moss Sentinel | Opt-in, in-process red-flag candidate retrieval; never reads a similarity score as confidence |
+| Clinical review | TypeScript rule engine | 12 PIM rules, 8 prescribing cascades, 3 duplicate classes, and ACB scoring |
+| Coordination | Server-rendered panel, Medplum writers | Presentation-safe review plus retry-safe FHIR artifacts |
 
-`src/engine/detect.ts` contains **no LLM calls**. Detection is a hand-curated,
-citation-backed table lookup (AGS Beers 2023, STOPP/START v3, the ACB scale,
-published cascade literature), so the system **cannot hallucinate a drug
-interaction** — and every recommendation shows the clinician its basis. The full
-reasoning behind every design decision is in
-[docs/DECISIONS.md](docs/DECISIONS.md).
+The central separation is deliberate: conversational AI understands language; `src/engine/detect.ts` makes no LLM calls. Medication findings come from deterministic clinical rules and citations.
 
-## Status: working end to end
+## What it proves
 
-**☎️ Try it — call the live demo line: +1 (603) 457-8331** and role-play a patient
-(name a few medications, mumble one on purpose, answer "I don't know" to something).
-The agent is live 24/7; the pipeline runs when the reviewing server is up.
+| Judge question | Repository answer |
+|---|---|
+| Does the call know the chart first? | `loadChartContext` reads the linked patient before Vapi receives compact per-call dynamic variables. |
+| Is an LLM deciding which medication is unsafe? | No. Claude extracts structured facts; the deterministic engine selects medication review findings. |
+| Can one call write to the wrong patient? | Patient-specific writes require the stored call session and an explicitly synthetic, tagged Medplum patient. Unlinked calls are panel-only. |
+| What happens after a partial write failure? | Stable call-scoped identifiers and typed Medplum lookup update existing resources on retry instead of duplicating them. |
+| Can prior agent output contaminate the next review? | Every generated resource carries the canonical `review-output` tag and is excluded from later chart prefill. |
+| Can it be checked without sponsor credentials? | The canned panel, engine fixture, negative control, FHIR stubs, server routes, and Sentinel-off invariants all run offline. |
 
-Tested over a **real phone call**: telephony audio garbled drug names
-("Jonipezil", "Burosemide") and the pipeline still resolved them, confirmed the
-cascade chain from the patient's own words, and wrote the FHIR resources to
-Medplum ~15 seconds after hangup. Engine output on the reference case:
+## Integrations
 
-```
-ACB = 8  [oxybutynin:3, diphenhydramine:3, furosemide:1, lorazepam:1]
-
-12 findings
-  [high    ] cascade         donepezil -> oxybutynin CONFIRMED
-  [high    ] cascade         amlodipine -> furosemide CONFIRMED
-  [high    ] duplicate       lorazepam -> diphenhydramine
-  [high    ] pim             lorazepam
-  [moderate] cascade         furosemide -> allopurinol CONFIRMED
-  [moderate] cascade         lisinopril -> benzonatate CONFIRMED
-  [moderate] no-indication   omeprazole
-  ...
-
-CHAINS: amlodipine -> furosemide -> allopurinol
-```
-
-## Quickstart
-
-No keys needed to see it work:
-
-```bash
-./run.sh                  # then open http://localhost:3000/review
-```
-
-`run.sh` does the whole local bring-up: preflight, `npm install`, typecheck,
-engine test, seeds the canned panel dataset, starts the server and waits for it
-to answer `/health`. Every command it runs is logged with its exit code and
-duration to `out/run-<timestamp>.log`. Useful flags: `--demo` (live extraction,
-needs `ANTHROPIC_API_KEY`), `--full-demo` (adds Medplum writes), `--no-serve`,
-`--port N`, `-v`. See `./run.sh --help`.
-
-The same steps by hand:
-
-```bash
-npm install
-npm test                  # deterministic engine, offline — findings above
-mkdir -p out && npm run panel:canned   # load the demo dataset for the panel
-npm run server            # then open http://localhost:3000/review
-```
-
-With credentials (`cp .env.example .env` — see [docs/SETUP.md](docs/SETUP.md)):
-
-```bash
-npm run demo:fast         # live extraction + RxNorm resolution, no FHIR writes
-npm run seed              # create the synthetic demo patient in Medplum
-npm run demo              # full pipeline including Medplum writes
-npm run vapi:setup <url>  # create/update the voice assistant from code
-```
-
-## The FHIR mapping
-
-| Conversation output | Resource | Note |
+| Integration | Role | Honest status |
 |---|---|---|
-| Current regimen | `MedicationStatement` | What she's *actually* taking; unresolved meds keep her verbatim words |
-| PIM hits | `Flag` | One per Beers/STOPP violation, citation in an extension |
-| Anticholinergic burden | `RiskAssessment` | Computed, auditable, contributors listed |
-| **Prescribing cascade** | **`DetectedIssue`** | `implicated[]` in **causal order**; `evidence` records whether the patient reported the linking symptom |
-| "I want to feel clear again" | `Goal` | `expressedBy` = the patient, not the clinician |
-| Taper schedule | `CarePlan` (draft) + `Task` | Real scheduled activities with due dates |
-| Prescriber note | `Communication` (preparation) | Drafted, never auto-sent |
+| **Medplum** | FHIR-native chart read, synthetic patient linkage, and review-resource write-back | Implemented; live use requires a ClientApplication |
+| **Deepgram through Vapi** | Nova-3 transcription and Aura speech; medication/safety keyterm boosting | Implemented in the versioned Vapi assistant configuration |
+| **Vapi** | Outbound calls, chart-prefill variables, authenticated transcript and end-of-call webhooks | Implemented; live use requires Vapi IDs and credentials |
+| **Anthropic** | Claude Haiku for the live conversation/verifier; Claude Sonnet for schema-constrained extraction and explanation | Implemented; offline tests do not call the API |
+| **RxNorm / RxNav** | Medication normalization and resolution | Implemented with explicit unresolved/fallback behavior |
+| **Moss** | Sentinel semantic recall for indirect urgent red-flag phrasing | Integrated and opt-in (`off`, `shadow`, `on`); offline fail-safe tests are included, live measurement requires Moss credentials |
+| **Stedi** | Future coverage and medication-cost context | Planned, not integrated and not represented as product output |
 
-Statuses are deliberate: `preliminary`, `draft`, `preparation`. Nothing is
-presented as final without a human — that is both honest and the regulatory
-posture.
+## Run it
 
-## Safety and scope
+### Offline canned path first
 
-- **Synthetic data only.** The demo patient is fictional and tagged
-  `synthetic-demo`. No real PHI.
-- **Clinician-in-the-loop, always.** The agent gathers and proposes; it never
-  directs. It is explicitly instructed never to tell a patient to stop, start, or
-  change a dose.
-- **Designed against FDA's Non-Device CDS criteria** (21st Century Cures
-  §520(o)(1)(E)): clinician-facing, ranked options with a visible citation on
-  every finding, nothing time-critical. A patient-facing autonomous taper would
-  be a regulated device — this isn't that.
-- **Red flags** (fall with head injury, syncope, chest pain, acute confusion,
-  suicidality) halt the review and escalate, checked on every turn.
+```bash
+npm ci
+npm run panel:canned
+npm run server
+```
 
-## Roadmap
+Open `http://127.0.0.1:3001/review`. The page is explicitly labeled as canned and makes no Medplum, Vapi, Anthropic, RxNav, or Moss request.
 
-- Rule engine as a **Medplum Bot** triggered on `MedicationStatement` creation —
-  the platform-native design; the engine is already a pure function
-- **Cost & coverage surface** — every stopped drug has a price; deprescribing is
-  the rare intervention that *saves* money (eligibility via Stedi)
-- Grow the knowledge tables toward full STOPP/START coverage with pharmacist
-  review
-- Formal extraction benchmark against real-world med-rec conversations
-- Prescription-history ingestion so cascades can be suspected from records even
-  before the conversation
+### Credentialed live-call path
 
-## Docs
+Configure the environment using [the setup guide](docs/SETUP.md). To enable Sentinel, provide `MOSS_PROJECT_ID` and `MOSS_PROJECT_KEY`, then set `MOSS_MODE=on` (`shadow` retrieves candidates without adding semantic escalations).
 
-- [TEAM.md](TEAM.md) — quick orientation and where to plug in
-- [docs/DECISIONS.md](docs/DECISIONS.md) — every design decision and why
-- [docs/SETUP.md](docs/SETUP.md) — Medplum + voice platform credentials
-- [docs/DEMO-2MIN.md](docs/DEMO-2MIN.md) — the two-minute presentation script
-- [docs/RUNBOOK.md](docs/RUNBOOK.md) — day-of operations
-- [docs/EVIDENCE.bib](docs/EVIDENCE.bib) — every statistic with its primary source
+```bash
+npm run seed
+npm run server
+npx localtunnel --port 3000
+
+# In another terminal, after setting PUBLIC_VAPI_ORIGIN:
+npm run vapi:setup -- "$PUBLIC_VAPI_ORIGIN/vapi"
+npm run demo:call
+npm run demo:inspect
+```
+
+The canonical sequence, role-play, inspection checklist, fallback, and privacy rules are in the [cross-prescriber operator runbook](docs/DEMO_CROSS_PRESCRIBER.md).
+
+## Validated numbers
+
+| Surface | Current count / assertion |
+|---|---|
+| Potentially inappropriate medication rules | **12** |
+| Prescribing-cascade rules | **8** |
+| Therapeutic-duplication classes | **3** |
+| Seeded chart | **1 patient · 5 practitioners · 5 conditions · 9 active MedicationRequests** |
+| Engine fixture | **ACB 8 · 12 findings · hero three-drug chain** |
+| Negative control | **0 findings · ACB 0** |
+| Sentinel offline fixtures | **54 utterances; lexical behavior unchanged when Moss is off** |
+
+```bash
+npm test
+npm run typecheck
+
+# Optional credentialed Sentinel evaluation/demo:
+npm run sentinel:measure
+npm run sentinel:try -- "I went down in the bathroom and cracked my head on the tub"
+```
+
+## Clinical evidence and limits
+
+These publications establish clinical context; they are not YCxMedplum outcomes:
+
+- A population cohort found that older adults newly prescribed a calcium-channel blocker were more likely to receive a loop diuretic within 90 days (HR 2.51, 95% CI 2.13–2.96), the measured cascade represented by the fixture. [Savage et al., JAMA Internal Medicine (2020)](https://doi.org/10.1001/jamainternmed.2019.7087)
+- In a 130-person STOPPFrail randomized trial, the intervention group reduced medication count and monthly medication cost; the trial did not detect significant differences in falls, hospitalization, quality of life, or mortality. [Curtin et al., Journal of the American Geriatrics Society (2020)](https://doi.org/10.1111/jgs.16278)
+- A systematic review and meta-analysis of 18 cohorts reported an association between higher anticholinergic burden and mortality. Association is not causation, and ACB 8 here is a fixture score rather than a predicted outcome. [Graves-Morris et al., Frontiers in Pharmacology (2020)](https://doi.org/10.3389/fphar.2020.00570)
+
+`RiskAssessment` and `DetectedIssue` are written with `preliminary` status, and `Goal` is `proposed`. Outputs are potential clinician-review items, never diagnoses, confirmed causal claims, medication orders, or instructions for a patient to start, stop, or change a dose.
+
+The repository uses synthetic data only. The view is intended for an authorized care team; the MVP does not grant cross-practice access, synchronize an external EHR, or claim HIPAA compliance. Production use would require verified care relationships, role-based access, audit controls, applicable agreements, and legal/compliance review.
+
+## View
+
+- [Cross-prescriber operator runbook](docs/DEMO_CROSS_PRESCRIBER.md)
+- [Setup guide](docs/SETUP.md)
+- [Operator command summary](docs/RUNBOOK.md)
+- [Design decisions and judge Q&A](docs/DECISIONS.md)
+- [Primary clinical evidence bibliography](docs/EVIDENCE.bib)
+- [Recorded rehearsal status](docs/reports/cross-prescriber-rehearsal.md)
+
+## Files
+
+| File | Runtime responsibility |
+|---|---|
+| `src/server.ts` | Authenticated webhook, local review surface, call linkage, Sentinel screening, and pipeline orchestration |
+| `src/context/loadChartContext.ts` | Medplum chart normalization and review-output exclusion |
+| `src/voice/createAssistant.ts` | Vapi, Claude Haiku, Deepgram Nova-3/Aura, and medication keyterms |
+| `src/llm/extract.ts` | Schema-constrained post-call extraction |
+| `src/rxnav.ts` | RxNorm normalization |
+| `src/engine/detect.ts` | Deterministic medication findings and chain detection |
+| `src/moss/redflags.ts` | Moss candidate recall, lexical floor, and fail-closed verifier orchestration |
+| `src/fhir/writers.ts` | Tagged, stable-identity FHIR review artifacts |
+| `src/ui/panel.ts` | Presentation-safe clinician coordination panel |
+| `src/test/engine.test.ts` | Headline fixture and zero-finding negative control |
+
+---
+
+**AI understands the conversation; deterministic evidence decides what clinicians should review.**

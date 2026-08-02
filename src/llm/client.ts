@@ -22,7 +22,18 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 
-export const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let memo: Anthropic | null = null;
+
+/**
+ * Lazy + memoised. Constructing the SDK eagerly at import time throws when
+ * ANTHROPIC_API_KEY is unset, which would make the offline engine and mapping
+ * tests unrunnable just for importing a module that never calls the model.
+ * Construction is deferred to the first real request instead.
+ */
+export function getClient(): Anthropic {
+  if (!memo) memo = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return memo;
+}
 
 /** Fast model for the live voice loop — latency is the whole UX. */
 export const VOICE_MODEL = 'claude-haiku-4-5-20251001';
@@ -39,7 +50,7 @@ export interface JsonCallOptions {
 
 /** Schema-constrained JSON call. Returns parsed output typed as T. */
 export async function callJson<T>(opts: JsonCallOptions): Promise<T> {
-  const res = await client.messages.create({
+  const res = await getClient().messages.create({
     model: opts.model ?? REASONING_MODEL,
     max_tokens: opts.maxTokens ?? 4000,
     system: opts.system,
@@ -70,7 +81,7 @@ export async function callText(opts: {
   model?: string;
   maxTokens?: number;
 }): Promise<string> {
-  const res = await client.messages.create({
+  const res = await getClient().messages.create({
     model: opts.model ?? REASONING_MODEL,
     max_tokens: opts.maxTokens ?? 1000,
     system: opts.system,

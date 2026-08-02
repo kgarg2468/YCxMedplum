@@ -14,6 +14,23 @@
 
 import { VOICE_SYSTEM_PROMPT, VOICE_FIRST_MESSAGE } from './prompt.js';
 import { ALL_INGREDIENT_NAMES } from '../data/knowledge.js';
+import { EMPTY_PREFILL } from './buildPrefill.js';
+
+/**
+ * Dynamic variables the system prompt expects. Vapi cannot store values for
+ * these on the assistant — they are supplied per call in
+ * `assistantOverrides.variableValues`, which is exactly what we want: the chart
+ * context belongs to one patient and one call, never to the shared assistant.
+ * https://docs.vapi.ai/assistants/dynamic-variables
+ */
+const REQUIRED_VARIABLES = Object.keys(EMPTY_PREFILL) as (keyof typeof EMPTY_PREFILL)[];
+
+for (const name of REQUIRED_VARIABLES) {
+  if (!VOICE_SYSTEM_PROMPT.includes(`{{${name}}}`)) {
+    console.error(`Prompt is missing the {{${name}}} placeholder — chart context would never reach the call.`);
+    process.exit(1);
+  }
+}
 
 /**
  * Deepgram nova-3 keyterm prompting (max 100 terms). Safety phrases first so the
@@ -29,6 +46,7 @@ const KEYTERMS = [
 const ASSISTANT_NAME = 'Deprescribe medication review';
 const VAPI = 'https://api.vapi.ai';
 const key = process.env.VAPI_API_KEY;
+const credentialId = process.env.VAPI_SERVER_CREDENTIAL_ID;
 const webhookUrl = process.argv[2];
 
 if (!key) {
@@ -66,7 +84,14 @@ const config = {
   // and that correlation has not been explained. Turning it on is a one-word change,
   // but do it with VAPI_DEBUG=1 and confirm transcript events still arrive.
   serverMessages: ['transcript', 'end-of-call-report'],
-  ...(webhookUrl ? { server: { url: webhookUrl } } : {}),
+  // The webhook is authenticated with a Vapi Bearer Token Custom Credential:
+  // create the credential in the dashboard with the same secret the server reads
+  // from VAPI_WEBHOOK_SECRET, then put only its ID in VAPI_SERVER_CREDENTIAL_ID.
+  // The secret itself never appears in assistant JSON, logs, or Git.
+  // https://docs.vapi.ai/server-url/server-authentication
+  ...(webhookUrl
+    ? { server: { url: webhookUrl, ...(credentialId ? { credentialId } : {}) } }
+    : {}),
   maxDurationSeconds: 1200,
   // An 82-year-old gathering her pill bottles goes quiet for a while. Vapi's
   // default 30s silence timeout hangs up on her mid-task (found in live testing);
@@ -97,11 +122,20 @@ async function main() {
 
   console.log(`${match ? 'Updated' : 'Created'} assistant: ${assistant.id}`);
   console.log(`Dashboard: https://dashboard.vapi.ai/assistants/${assistant.id}`);
+  console.log(`\nThis assistant reads chart context from ${REQUIRED_VARIABLES.map((v) => `{{${v}}}`).join(' and ')}.`);
+  console.log('Those are per-call values: the server sends them in assistantOverrides.variableValues');
+  console.log('when it places the call. A dashboard test call with no overrides gets the empty chart');
+  console.log(`(${EMPTY_PREFILL.prefill_json}) and falls back to the full spoken inventory.`);
   if (!webhookUrl) {
     console.log('\n⚠ No webhook URL set. Once the server + tunnel are running, re-run:');
     console.log('  npx tsx --env-file-if-exists=.env src/voice/createAssistant.ts https://<tunnel>/vapi');
   } else {
     console.log(`Webhook: ${webhookUrl}`);
+    console.log(credentialId
+      ? `Webhook authentication: Custom Credential ${credentialId} (server rejects anything else)`
+      : '\n⚠ VAPI_SERVER_CREDENTIAL_ID is empty — Vapi will send no bearer token and the\n' +
+        '  server will answer 401. Create a Bearer Token Custom Credential whose secret\n' +
+        '  equals VAPI_WEBHOOK_SECRET, then set its ID and re-run this script.');
   }
   console.log('\nTo call it: attach a free phone number in the dashboard (Phone Numbers → Create),');
   console.log('assign this assistant to it, and TEST WITH A REAL PHONE CALL — web-widget audio');
