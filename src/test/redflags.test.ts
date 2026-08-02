@@ -24,7 +24,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { runSentinel } from '../moss/redflags.js';
+import { normaliseRedFlags, runSentinel } from '../moss/redflags.js';
 import { getSentinelSession, mossMode } from '../moss/session.js';
 import { classOfLexicalReason } from '../moss/concepts.js';
 import { checkRedFlags, RED_FLAG_PATTERNS } from '../voice/prompt.js';
@@ -158,6 +158,28 @@ async function main() {
     assert.equal(
       falsePositives.length, 2,
       `lexical false positives changed: ${falsePositives.map((t) => `"${t}"`).join(', ')}`,
+    );
+  });
+
+  check('normaliseRedFlags collapses equivalent source wording by clinical class', () => {
+    assert.deepEqual(
+      normaliseRedFlags([
+        'Fall with head injury',
+        'suicidal statement: "The wish I did not wake up this morning."',
+        'fall with head injury: "On Sunday, I cracked my head on the bathtub."',
+        'Suicidal statement, escalate to a human immediately',
+      ]),
+      [
+        'Fall with head injury',
+        'Suicidal statement, escalate to a human immediately',
+      ],
+    );
+  });
+
+  check('normaliseRedFlags preserves an unrecognised warning verbatim', () => {
+    assert.deepEqual(
+      normaliseRedFlags(['  Caregiver reports a new safety concern  ']),
+      ['Caregiver reports a new safety concern'],
     );
   });
 

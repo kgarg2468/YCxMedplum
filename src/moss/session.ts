@@ -40,7 +40,7 @@ import { CONCEPT_DOCS } from './concepts.js';
 
 // Set before any client is constructed. Moss otherwise persists a per-device id and
 // phones home; this is a health context and a hackathon demo, neither wants that.
-process.env.MOSS_DISABLE_TELEMETRY ??= '1';
+process.env.MOSS_DISABLE_TELEMETRY ||= '1';
 
 /** Logical name of the session index. Local only, never pushed to the cloud. */
 const SESSION_NAME = 'sentinel-redflags';

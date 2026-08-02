@@ -243,6 +243,27 @@ function unique<T>(values: T[]): T[] {
 }
 
 /**
+ * Resolve a class from free text by its opening label.
+ *
+ * The extractor writes prose like `suicidal statement: "The wish I didn't wake up this
+ * morning."`. The regexes do not fire on it, because "wish I didn't wake up" is exactly
+ * extractor names the condition in its own first words, and every canonical reason
+ * starts with the same label ("Suicidal statement, escalate to..." / "Fall with head
+ * injury"), so compare against the part before the first comma.
+ *
+ * A heuristic over model prose, so it is used LAST and only ever merges a duplicate.
+ * Anything it fails to resolve is kept verbatim rather than dropped.
+ */
+function classOfLabel(text: string): RedFlagClass | null {
+  const hay = text.toLowerCase();
+  for (const [cls, { reason }] of Object.entries(REDFLAG_REASONS)) {
+    const label = reason.split(',')[0].trim().toLowerCase();
+    if (label.length >= 6 && hay.includes(label)) return cls as RedFlagClass;
+  }
+  return null;
+}
+
+/**
  * Collapse the three red-flag sources into one line per condition.
  *
  * `review.redFlags` unions the regexes, the LLM extractor's `red_flags`, and whatever
@@ -265,28 +286,6 @@ function unique<T>(values: T[]): T[] {
  * The extractor's quotes are not lost: they are the patient's own words, and they still
  * reach the chart through the Flag's audit extension.
  */
-/**
- * Resolve a class from free text by its opening label.
- *
- * The extractor writes prose like `suicidal statement: "The wish I didn't wake up this
- * morning."`. The regexes do not fire on it, because "wish I didn't wake up" is exactly
- * the vernacular they miss, which is the whole reason Sentinel exists. But the
- * extractor names the condition in its own first words, and every canonical reason
- * starts with the same label ("Suicidal statement, escalate to..." / "Fall with head
- * injury"), so compare against the part before the first comma.
- *
- * A heuristic over model prose, so it is used LAST and only ever merges a duplicate.
- * Anything it fails to resolve is kept verbatim rather than dropped.
- */
-function classOfLabel(text: string): RedFlagClass | null {
-  const hay = text.toLowerCase();
-  for (const [cls, { reason }] of Object.entries(REDFLAG_REASONS)) {
-    const label = reason.split(',')[0].trim().toLowerCase();
-    if (label.length >= 6 && hay.includes(label)) return cls as RedFlagClass;
-  }
-  return null;
-}
-
 export function normaliseRedFlags(reasons: string[]): string[] {
   const byClass = new Map<RedFlagClass, string>();
   const unclassified: string[] = [];

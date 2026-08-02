@@ -24,10 +24,9 @@ import { checkRedFlags } from './voice/prompt.js';
 import { persistReview, summarizeWritten, writeRedFlagTask, writeRedFlagFlag } from './fhir/writers.js';
 import { DEMO_CONDITIONS, DEMO_DURATIONS, seedDemoPatient, patientLabel } from './fhir/seed.js';
 import { renderReviewHtml, type ReviewSnapshot } from './ui/panel.js';
-import { runSentinel } from './moss/redflags.js';
+import { normaliseRedFlags, runSentinel } from './moss/redflags.js';
 import { warmSentinel } from './moss/session.js';
 import { classOfLexicalReason } from './moss/concepts.js';
-import { normaliseRedFlags } from './moss/redflags.js';
 import type { RedFlagClass, RedFlagVerdict, SentinelResult } from './moss/types.js';
 
 const PORT = Number(process.env.PORT ?? 3000);
