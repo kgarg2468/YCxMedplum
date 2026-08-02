@@ -31,6 +31,8 @@
 
 import { FONT_FACE_CSS } from './fonts.js';
 import type { ReviewResult, Finding, ResolvedMed } from '../types.js';
+import type { SentinelResult } from '../moss/types.js';
+import { classOfLexicalReason } from '../moss/concepts.js';
 // Inlined from the cross-prescriber branch's context/types.ts — main has no
 // src/context/. Snapshot fields carrying these are optional and simply absent
 // in main-produced snapshots.
@@ -97,6 +99,11 @@ export interface ReviewSnapshot {
     /** Per-resource detail incl. the note/comment text the console UI buries. */
     resources?: SnapshotWrittenResource[];
   };
+  /**
+   * One entry per screened turn. Absent when Sentinel is off, when it never ran, or
+   * when the turns could not be attributed to this call.
+   */
+  sentinel?: SentinelResult[];
 }
 
 const esc = (s: string) =>
@@ -593,6 +600,72 @@ export function renderReviewHtml(snap: ReviewSnapshot | null): string {
 </html>`;
 }
 
+/**
+ * Sentinel audit trail: what the semantic net proposed, and what happened to it.
+ *
+ * Deliberately absent from this table: any Moss score. Moss returns reciprocal-rank
+ * fusion (`weight * 31/(30 + rank)`), identical for a real match and for nonsense,
+ * so a number here would read as a confidence and would be a lie. The only signal
+ * taken from Moss is which class of concept document ranked first; precision comes
+ * from the verifier column, and the decision comes from the clinician.
+ */
+function sentinelSection(results: SentinelResult[]): string {
+  const mode = results[results.length - 1]?.mode ?? 'off';
+  const mossMs = results.reduce((n, r) => n + (r.mossMs ?? 0), 0);
+  const meta = `${results.length} turn${results.length === 1 ? '' : 's'} screened`
+    + (mossMs ? ` &middot; ${Math.round(mossMs)}ms in Moss` : '')
+    + ` &middot; mode <code>${esc(mode)}</code>`
+    + (mode === 'shadow' ? ' (proposals are logged, nothing escalates)' : '');
+
+  const rows = results.flatMap((res) => res.candidates.map((c) => {
+    const verdict = res.verdicts.find(
+      (v) => v.candidate.cls === c.cls && v.candidate.windowText === c.windowText,
+    );
+    // Compared by CLASS, not by reason string. The regexes' wording for suicidality
+    // and the concept table's differ by one character, and comparing strings rendered
+    // "semantic only" on a candidate the regex had also caught.
+    const caughtLexically = res.lexical.some((r) => classOfLexicalReason(r) === c.cls);
+    const caught = caughtLexically
+      ? '<span class="tag">regex + semantic</span>'
+      : '<span class="tag warn">semantic only</span>';
+    const ruling = !verdict
+      ? '<span class="tag">not verified</span>'
+      : !verdict.verifierRan
+        ? '<span class="tag warn">verifier unavailable &rarr; no Flag written</span>'
+        : verdict.confirmed
+          ? '<span class="tag warn">confirmed &rarr; Flag written</span>'
+          : '<span class="tag">ruled out &rarr; no Flag written</span>';
+    const escalated = caughtLexically || res.escalated.includes(c.reason)
+      ? '<span class="tag warn">escalated</span>' : '';
+
+    return `
+      <tr>
+        <td><span class="ing">${esc(c.cls)}</span><div class="muted" style="font-size:12.5px">${esc(c.reason)}</div></td>
+        <td class="said">&ldquo;${esc(c.windowText)}&rdquo;</td>
+        <td>${caught}</td>
+        <td>${ruling}${escalated}${verdict?.rationale
+          ? `<div class="muted" style="font-size:12.5px">${esc(verdict.rationale)}</div>` : ''}</td>
+      </tr>`;
+  }));
+
+  return `
+  <h2>Sentinel: semantic red-flag recall <span class="count">${rows.length}</span></h2>
+  <div class="card">
+    <div class="muted" style="font-size:13.5px">${meta}</div>
+    ${rows.length ? `
+    <table style="margin-top:12px">
+      <thead><tr><th style="width:200px">Class</th><th style="width:38%">What the patient said</th><th style="width:150px">Caught by</th><th>Verifier</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>` : `
+    <p class="explain" style="margin:10px 0 0">No turn ranked a red-flag concept above the benign decoys.</p>`}
+    <div class="citation">The regex check runs first and unconditionally; Sentinel can only add to what it
+    escalates, never subtract. A candidate the verifier could not check does not escalate, and only a
+    verifier-confirmed class is written to the chart as a FHIR Flag, including when the regexes caught it too.
+    No similarity score is shown here because Moss does not produce one: only the class of each concept
+    document returned is read. The verifier column quotes the patient verbatim rather than paraphrasing.</div>
+  </div>`;
+}
+
 function renderBody(snap: ReviewSnapshot): string {
   const r = snap.review;
   const cascades = r.findings.filter((f) => f.kind === 'cascade');
@@ -814,6 +887,8 @@ function renderBody(snap: ReviewSnapshot): string {
         ? 'urgent FHIR Task created for clinician'
         : 'immediate clinician attention required'}</strong>${r.redFlags.map(esc).join('; ')}
     </div>` : ''}
+
+    ${snap.sentinel?.length ? sentinelSection(snap.sentinel) : ''}
 
     <div class="grid">
       ${medsPanel}
